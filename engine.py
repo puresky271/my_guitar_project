@@ -27,17 +27,18 @@ def guitar_body_filter(samples, mix, sr=SR):
 
 
 # ---------------- 空间早期反射 ----------------
-def early_reflection(samples, reflection, delay=120):
-   delay_ms = 30
+def early_reflection(samples, reflection, sr=SR):
+    delay_ms = 30
     delay_samples = int(sr * delay_ms / 1000)
-    # y[n] = x[n] + 0.6 * x[n - delay]
+    
+    # 构造 FIR 滤波器系数
     b = np.zeros(delay_samples + 1)
     b[0] = 1.0
     b[delay_samples] = 0.6
     a = [1.0]
     
     y = lfilter(b, a, samples)
-    return samples * (1 - mix) + y * mix
+    return samples * (1 - reflection) + y * reflection
 
 
 
@@ -164,4 +165,5 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
     # --- 修改点：同时返回 bytes 和 numpy 数组 ---
 
     return buf.getvalue(), samples_np
+
 
