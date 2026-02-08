@@ -215,7 +215,7 @@ with col_left:
         """, unsafe_allow_html=True)
 
         st.markdown("### 2. 执行渲染")
-        if st.button("🎧 GuitarHero，启动！", type="primary", use_container_width=True):
+        if st.button("🎧 **GuitarHero，启动！**", type="primary", use_container_width=True):
             with st.status("正在进行流式物理计算...", expanded=True) as status:
                 st.write("初始化 128 根虚拟琴弦...")
 
@@ -258,3 +258,4 @@ st.markdown("---")
 st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True)
+
