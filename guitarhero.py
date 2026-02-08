@@ -4,7 +4,10 @@ import time
 import base64
 import streamlit.components.v1 as components
 from engine import midi_to_audio
-
+@st.cache_data(show_spinner=False)
+def midi_to_audio_cached(file_content, brightness, pluck_pos, body_mix, reflection, coupling):
+    midi_stream = io.BytesIO(file_content)
+    return midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coupling)
 # --- 页面配置 ---
 st.set_page_config(
     page_title="Karplus-Strong Studio",
@@ -261,4 +264,5 @@ with col_right:
 st.markdown("---")
 st.center_text = st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
+
     unsafe_allow_html=True)
