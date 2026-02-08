@@ -71,37 +71,51 @@ if st.session_state.get("reset_tone"):
 # --- 核心组件：同步波形播放器  ---
 def render_sync_player(audio_bytes):
     b64 = base64.b64encode(audio_bytes).decode()
+    # 增加 unique ID 防止浏览器缓存组件导致的渲染失败
+    unique_id = int(time.time())
+    
     html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
         <style>
-            body {{ margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }}
-            .audio-container {{ width: 100%; margin-bottom: 10px; }}
-            audio {{ width: 100%; outline: none; filter: invert(0.9); }}
-            #waveform {{ width: 100%; height: 80px; border-radius: 4px; background: rgba(255,255,255,0.05); }}
+            body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
+            .audio-container {{ width: 100%; margin-bottom: 5px; }}
+            audio {{ width: 100%; height: 40px; outline: none; filter: invert(0.9) hue-rotate(180deg); }}
+            #waveform-{unique_id} {{ 
+                width: 100%; height: 80px; border-radius: 6px; 
+                background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+            }}
         </style>
     </head>
     <body>
         <div class="audio-container">
-            <audio id="track" controls src="data:audio/wav;base64,{b64}"></audio>
+            <audio id="track-{unique_id}" controls src="data:audio/wav;base64,{b64}"></audio>
         </div>
-        <div id="waveform"></div>
+        <div id="waveform-{unique_id}"></div>
         <script>
-            const audioEl = document.querySelector('#track');
-            const wavesurfer = WaveSurfer.create({{
-                container: '#waveform',
-                media: audioEl,
-                waveColor: '#ff4b4b',
-                progressColor: '#2C5364',
-                barWidth: 2, barGap: 2, barRadius: 2, height: 80, normalize: true, interact: false,
-            }});
+            try {{
+                const audioEl = document.querySelector('#track-{unique_id}');
+                const wavesurfer = WaveSurfer.create({{
+                    container: '#waveform-{unique_id}',
+                    media: audioEl,
+                    waveColor: '#ff4b4b',
+                    progressColor: '#2C5364',
+                    barWidth: 2,
+                    barGap: 3,
+                    height: 80,
+                    normalize: true,
+                    interact: true // 允许用户点击波形跳转
+                }});
+            }} catch (e) {{
+                console.error("WaveSurfer Error:", e);
+            }}
         </script>
     </body>
     </html>
     """
-    components.html(html_code, height=140)
+    components.html(html_code, height=160)
 
 # --- 侧边栏 ---
 with st.sidebar:
@@ -215,3 +229,4 @@ with col_right:
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>", unsafe_allow_html=True)
+
