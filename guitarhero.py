@@ -70,40 +70,38 @@ if st.session_state.get("reset_tone"):
 
 # --- 核心组件：同步波形播放器  ---
 def render_sync_player(audio_bytes):
-    # 将音频转为 base64
     b64 = base64.b64encode(audio_bytes).decode()
-    
-    # 既然 CDN 不稳定，我们改用标准的 HTML5 Audio 渲染，暂时绕开复杂的 WaveSurfer 
-    # 如果这个能出来，说明是脚本加载问题；如果这个也出不来，说明是 Base64 数据量太大的问题
     html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
+        <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
         <style>
-            body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
-            .container {{ 
-                width: 100%; 
-                padding: 10px; 
-                background: rgba(255,255,255,0.05); 
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,0.1);
-            }}
-            audio {{ width: 100%; filter: invert(0.9) hue-rotate(180deg); }}
-            .tips {{ color: #888; font-size: 12px; margin-top: 5px; font-family: sans-serif; }}
+            body {{ margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; }}
+            .audio-container {{ width: 100%; margin-bottom: 10px; }}
+            audio {{ width: 100%; outline: none; filter: invert(0.9); }}
+            #waveform {{ width: 100%; height: 80px; border-radius: 4px; background: rgba(255,255,255,0.05); }}
         </style>
     </head>
     <body>
-        <div class="container">
-            <audio controls autoplay name="media">
-                <source src="data:audio/wav;base64,{b64}" type="audio/wav">
-            </audio>
-            <div class="tips">提示：如果波形加载失败，请优先使用此播放器下载或试听。</div>
+        <div class="audio-container">
+            <audio id="track" controls src="data:audio/wav;base64,{b64}"></audio>
         </div>
+        <div id="waveform"></div>
+        <script>
+            const audioEl = document.querySelector('#track');
+            const wavesurfer = WaveSurfer.create({{
+                container: '#waveform',
+                media: audioEl,
+                waveColor: '#ff4b4b',
+                progressColor: '#2C5364',
+                barWidth: 2, barGap: 2, barRadius: 2, height: 80, normalize: true, interact: false,
+            }});
+        </script>
     </body>
     </html>
     """
-    components.html(html_code, height=160)
-
+    components.html(html_code, height=140)
 # --- 侧边栏 ---
 with st.sidebar:
     st.title("音色实验室")
@@ -216,6 +214,7 @@ with col_right:
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>", unsafe_allow_html=True)
+
 
 
 
