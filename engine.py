@@ -10,7 +10,7 @@ SR = 48000  # 专业音频标准
 # ---------------- 吉他琴箱共鸣 ----------------
 def guitar_body_filter(samples, mix, sr=SR):
     f = 140      # 更接近吉他箱体主共鸣
-    r = 0.96     # 大幅降低Q值（关键）
+    r = 0.96     # 大幅降低Q值
 
     y = np.zeros_like(samples)
 
@@ -21,7 +21,7 @@ def guitar_body_filter(samples, mix, sr=SR):
             - (r**2) * y[n-2]
         )
 
-    # ⭐ 核心：与原声混合，而不是替代
+    #  核心：与原声混合，而不是替代
     return samples * (1 - mix) + y * mix
 
 
@@ -156,4 +156,5 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
         wf.writeframes(samples_int.tobytes())
 
     # --- 修改点：同时返回 bytes 和 numpy 数组 ---
+
     return buf.getvalue(), samples_np
