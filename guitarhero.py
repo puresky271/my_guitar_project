@@ -78,7 +78,7 @@ def render_sync_player(audio_bytes):
     <!DOCTYPE html>
     <html>
     <head>
-        <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+        <script src="https://cdn.staticfile.org/wavesurfer.js/7.7.7/wavesurfer.min.js"></script>
         <style>
             body {{ margin: 0; padding: 0; background: transparent; overflow: hidden; }}
             .audio-container {{ width: 100%; margin-bottom: 5px; }}
@@ -229,4 +229,5 @@ with col_right:
 
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>", unsafe_allow_html=True)
+
 
