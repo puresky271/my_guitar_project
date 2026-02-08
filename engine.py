@@ -3,6 +3,7 @@ import numpy as np
 from collections import deque
 import io
 import wave
+from scipy.signal import lfilter
 
 SR = 48000  # 专业音频标准
 
@@ -12,14 +13,13 @@ def guitar_body_filter(samples, mix, sr=SR):
     f = 140      # 更接近吉他箱体主共鸣
     r = 0.96     # 大幅降低Q值
 
-    y = np.zeros_like(samples)
-
-    for n in range(2, len(samples)):
-        y[n] = (
-            samples[n]
-            + 2 * r * np.cos(2*np.pi*f/sr) * y[n-1]
-            - (r**2) * y[n-2]
-        )
+    w0 = 2 * np.pi * f / sr
+    # 差分方程系数
+    b = [1.0]
+    a = [1.0, -2 * r * np.cos(w0), r**2]
+    
+    # 这一行替代了原来所有的 for 循环
+    y = lfilter(b, a, samples)
 
     #  核心：与原声混合，而不是替代
     return samples * (1 - mix) + y * mix
@@ -28,10 +28,16 @@ def guitar_body_filter(samples, mix, sr=SR):
 
 # ---------------- 空间早期反射 ----------------
 def early_reflection(samples, reflection, delay=120):
-    out = np.copy(samples)
-    for i in range(delay, len(samples)):
-        out[i] += samples[i - delay] * reflection
-    return out
+   delay_ms = 30
+    delay_samples = int(sr * delay_ms / 1000)
+    # y[n] = x[n] + 0.6 * x[n - delay]
+    b = np.zeros(delay_samples + 1)
+    b[0] = 1.0
+    b[delay_samples] = 0.6
+    a = [1.0]
+    
+    y = lfilter(b, a, samples)
+    return samples * (1 - mix) + y * mix
 
 
 
@@ -65,7 +71,7 @@ class GuitarString:
         front = self.buffer.popleft()
         nextv = self.buffer[0]
 
-        # ⭐ 核心：加入高频成分（差分项）
+        #  核心：加入高频成分（差分项）
         high_freq = front - nextv
 
         new_sample = (
@@ -158,3 +164,4 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
     # --- 修改点：同时返回 bytes 和 numpy 数组 ---
 
     return buf.getvalue(), samples_np
+
