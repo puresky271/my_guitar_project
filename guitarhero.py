@@ -5,14 +5,51 @@ import base64
 import streamlit.components.v1 as components
 from engine import midi_to_audio
 
+
+def get_local_gif():
+    import base64
+    import os
+
+    # 路径锁定
+    path = r"D:\python\my_guitar_project\assets\mygo.gif"
+    if not os.path.exists(path):
+        path = "assets/mygo.gif"
+
+    try:
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+
+        return f"""
+        <div id="fs-container" onclick="this.requestFullscreen(); this.style.display='flex';" 
+             style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:black; z-index:9999; align-items:center; justify-content:center;">
+            <img src="data:image/gif;base64,{b64}" style="max-width:100%; max-height:100%;">
+        </div>
+        <a href="javascript:void(0)" onclick="openFS()" style="color: #555; text-decoration: none; font-size: 12px;">[ 🎬 好康的 ]</a>
+
+        <script>
+            function openFS() {{
+                var elem = document.getElementById("fs-container");
+                elem.style.display = "flex";
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+            }}
+            document.addEventListener('fullscreenchange', () => {{
+                if (!document.fullscreenElement) document.getElementById("fs-container").style.display = "none";
+            }});
+        </script>
+        """
+    except:
+        return ""
+
+
 # --- 缓存装饰器  ---
 @st.cache_data(show_spinner=False)
 def midi_to_audio_cached(file_content, brightness, pluck_pos, body_mix, reflection, coupling):
-  
     midi_stream = io.BytesIO(file_content)
-   
+
     audio_bytes, _ = midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coupling)
     return audio_bytes
+
 
 # --- 页面配置 ---
 st.set_page_config(
@@ -68,6 +105,7 @@ if st.session_state.get("reset_tone"):
         st.session_state[k] = v
     st.session_state.reset_tone = False
 
+
 # --- 核心组件：同步波形播放器  ---
 def render_sync_player(audio_bytes):
     b64 = base64.b64encode(audio_bytes).decode()
@@ -102,6 +140,8 @@ def render_sync_player(audio_bytes):
     </html>
     """
     components.html(html_code, height=140)
+
+
 # --- 侧边栏 ---
 with st.sidebar:
     st.title("音色实验室")
@@ -137,7 +177,7 @@ with st.sidebar:
     if st.button("🔄 恢复默认音色", use_container_width=True):
         st.session_state.reset_tone = True
         st.rerun()
-        
+
 # --- 标题  ---
 st.markdown("""
 <div style="background: linear-gradient(90deg,#0f2027,#203a43,#2c5364); padding: 18px 28px; border-radius: 12px; color: white; margin-bottom: 20px;">
@@ -181,16 +221,18 @@ with col_left:
 
                 st.write("解析 MIDI 事件并进行活跃弦追踪...")
 
- 
                 audio_bytes = midi_to_audio_cached(
                     file_content, brightness, pluck_position, body_mix, reflection, coupling
                 )
 
                 if audio_bytes:
                     st.session_state.audio_out = audio_bytes
+                    st.session_state.render_done = True
                     status.update(label="✅ 渲染成功!", state="complete", expanded=False)
                 else:
                     st.error("渲染失败，请检查文件。")
+        if mode == "😡为什么要演奏春日影" and st.session_state.get("render_done"):
+            st.components.v1.html(get_local_gif(), height=30)
 
 with col_right:
     st.markdown("### 3. 输出与试听")
@@ -213,8 +255,6 @@ with col_right:
             """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>", unsafe_allow_html=True)
-
-
-
-
+st.markdown(
+    "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
+    unsafe_allow_html=True)
