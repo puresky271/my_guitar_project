@@ -156,11 +156,11 @@ def get_gif_button_html():
 
 # ---------- 状态初始化 (已更新为推荐参数) ----------
 DEFAULTS = {
-    "brightness": 0.70,  # 提升亮度，让声音更像新弦
-    "pluck_position": 0.20,  # 微调拨弦位置，平衡清脆度
+    "brightness": 0.60,  # 提升亮度，让声音更像新弦
+    "pluck_position": 0.25,  # 微调拨弦位置，平衡清脆度
     "body_mix": 0.15,  # 降低共鸣，减少浑浊感 (关键优化)
     "reflection": 0.15,  # 适度增加空气感
-    "coupling": 0.004,  # 增加一点延音
+    "coupling": 0.005,  # 增加一点延音
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -449,7 +449,7 @@ with st.sidebar:
     if instrument == "guitar":
         st.subheader("🎸 吉他物理参数")
         pluck_position = st.slider(
-            "拨弦位置（近琴桥 ⇄ 近指板）", 0.08, 0.35, step=0.01, key="pluck_position",
+            "拨弦位置（近琴桥 ⇄ 近指板）", 0.08, 0.40, step=0.01, key="pluck_position",
             help="决定音色是清脆还是温暖。数值越小越清脆（近琴桥），数值越大越圆润（近指板）。"
         )
         body_mix = st.slider("琴箱共鸣强度", 0.0, 0.6, step=0.02, key="body_mix",
@@ -666,5 +666,6 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
 
 
