@@ -23,7 +23,7 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
     
     output = np.zeros(n_samples, dtype=np.float32)
     
-    # === 1. 琴槌击弦模型（真实物理） ===
+    # === 1. 琴槌击弦模型  ===
     # 琴槌接触时间：约 1-4ms（频率越高，接触时间越短）
     contact_time = max(0.001, 0.004 - frequency / 2000.0)
     contact_samples = int(contact_time * SR)
@@ -47,7 +47,7 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
         # 使用 raised cosine 函数
         hammer_shape = (1.0 - np.cos(np.pi * t)) / 2.0
         
-        # 应用非线性（毛毡的弹性）
+        # 应用非线性
         hammer_force = hammer_shape * (1.0 - hammer_shape * 0.3)
         
         output[i] = hammer_force * hammer_velocity
@@ -423,3 +423,4 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
     
     print("✅ 钢琴渲染完成")
     return buf.getvalue(), mix_buffer
+
