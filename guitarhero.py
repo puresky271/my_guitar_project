@@ -706,7 +706,8 @@ with col_output:
 # --- 页脚 ---
 st.markdown("---")
 st.markdown(
-    "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
+    "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑爆改</p>",
     unsafe_allow_html=True
 )
+
 
