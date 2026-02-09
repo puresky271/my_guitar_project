@@ -57,7 +57,7 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
 
     # 添加微小噪声（琴弦的微观不完美）
     for i in range(min(contact_samples * 2, n_samples)):
-        output[i] += np.random.normal(0, 0.002) * velocity
+        output[i] += np.random.normal(0, 0.0001) * velocity
 
     # === 2. 弦的传播和衰减 ===
     # 钢琴弦的衰减非常复杂，分为三个阶段
@@ -365,10 +365,19 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
 
         mix_buffer = mix_buffer * 0.75 + reverb * 0.25
 
-    # 4. 最终限制
-    peak = np.max(np.abs(mix_buffer))
-    if peak > 0.0001:
-        mix_buffer = mix_buffer / peak * 0.9
+    audio_buffer = np.clip(mix_buffer, -3.0, 3.0) 
+    
+    # 找到 99.9% 的分位数作为参考（忽略极个别的瞬时尖峰）
+    peak = np.percentile(np.abs(audio_buffer), 99.9)
+    
+    if peak > 0.00001:
+        # 即使基础声音很小，也能被强制拉升
+        audio_buffer = audio_buffer / peak * 0.85
+    else:
+        # 如果还是太小，尝试暴力拉升
+        max_val = np.max(np.abs(audio_buffer))
+        if max_val > 0:
+            audio_buffer = audio_buffer / max_val * 0.85
 
     # 转换为 WAV
     samples_int = (mix_buffer * 32767).astype(np.int16)
@@ -386,4 +395,5 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
 
     print("✅ 钢琴渲染完成")
     return buf.getvalue(), mix_buffer
+
 
