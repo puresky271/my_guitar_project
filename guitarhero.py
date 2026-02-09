@@ -440,7 +440,7 @@ def render_sync_player(audio_bytes):
 with st.sidebar:
     st.title("音色实验室")
     st.caption("在调参后请手动重新生成，虽然我也不建议你改就是了")
-    st.caption("如果你觉得麦很炸，就换成钢琴模式")
+    st.caption("因为不同的MIDI文件所使用的演奏乐器不同，有些天生适合钢琴，有些天生适合吉他，如果你觉得某一种模式很怪，就换成另一种")
     st.markdown("---")
 
     # 乐器状态管理
@@ -666,6 +666,7 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
 
 
 
