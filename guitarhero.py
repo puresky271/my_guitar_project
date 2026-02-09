@@ -156,7 +156,7 @@ def get_gif_button_html():
 
 # ---------- 状态初始化 (已更新为推荐参数) ----------
 DEFAULTS = {
-    "brightness": 0.75,  # 提升亮度，让声音更像新弦
+    "brightness": 0.70,  # 提升亮度，让声音更像新弦
     "pluck_position": 0.20,  # 微调拨弦位置，平衡清脆度
     "body_mix": 0.15,  # 降低共鸣，减少浑浊感 (关键优化)
     "reflection": 0.15,  # 适度增加空气感
@@ -666,4 +666,5 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
 
