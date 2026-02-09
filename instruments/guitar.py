@@ -12,8 +12,6 @@ SR = 48000
 def karplus_strong_hifi(n_samples, delay_samples, velocity, brightness, decay_factor):
     """
     高保真 Karplus-Strong 算法
-
-    关键改进：
     1. 平滑的激励信号（避免尖锐的点击声）
     2. 频率自适应的低通滤波
     3. 渐进式能量衰减（避免突然截止）
@@ -195,7 +193,7 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
     print(f"🎸 吉他引擎：处理 {len(events)} 个音符事件")
 
-    # === 关键：动态范围压缩预算 ===
+    # === 动态范围压缩预算 ===
     # 统计同时发声的最大音符数，用于自动增益控制
     max_polyphony = 1
     time_grid = np.zeros(total_samples, dtype=np.int16)
@@ -310,4 +308,5 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
     print("✅ 吉他渲染完成")
     return buf.getvalue(), mix_buffer
+
 
