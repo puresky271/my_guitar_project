@@ -28,9 +28,8 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
     contact_time = max(0.001, 0.004 - frequency / 2000.0)
     contact_samples = int(contact_time * SR)
 
-    # 琴槌速度到位移的转换（非线性）
-    # 钢琴的响应曲线接近 v^3（比吉他的 v^2 更陡）
-    hammer_velocity = velocity ** 3.0
+    
+    hammer_velocity = velocity
 
     # 多弦系统：每根弦的相位略有不同
     phase_offset = string_num * 0.05
@@ -278,8 +277,9 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
             time_grid[start:end] += 1
             max_polyphony = max(max_polyphony, np.max(time_grid[start:end]))
 
-    agc_factor = 1.0 / (max_polyphony ** 0.4)  # 0.7 次方，比吉他更温和
-    print(f"   最大复音数: {max_polyphony}, 自动增益: {agc_factor:.3f}")
+    # === 自动增益控制 (优化版：不再过度惩罚) ===
+    # 钢琴不需要像吉他那样激进的 AGC，固定一个基础增益，最后靠 Normalization 补齐
+    agc_factor = 0.8  # 提高基础增益
 
     # === 音符渲染 ===
     for start, end, note, velocity, pedaled in events:
@@ -287,62 +287,41 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
             continue
 
         freq = 440.0 * (2.0 ** ((note - 69) / 12.0))
-        if freq > SR / 2 or freq < 27.5:  # A0 = 27.5Hz
+        if freq > SR / 2 or freq < 27.5:
             continue
 
-        # 决定弦数（真实钢琴的配置）
-        if note < 30:  # 低音区
-            num_strings = 1
-        elif note < 50:  # 中音区
-            num_strings = 2
-        else:  # 高音区
-            num_strings = 3
+        # 决定弦数
+        if note < 30: num_strings = 1
+        elif note < 50: num_strings = 2
+        else: num_strings = 3
 
-        # === 力度响应（钢琴的非线性特性）===
-        # 钢琴力度曲线比吉他更陡峭
-        vel_curve = (velocity / 127.0) ** 1.5
+        # === 线性力度响应 (不再使用高次方) ===
+        vel_curve = (velocity / 127.0) ** 1.2 
+        final_velocity = vel_curve * agc_factor
 
-        # 频率平衡（钢琴的低音不需要像吉他那样大幅削减）
-        if freq < 100:
-            freq_gain = 0.7  # 低音适度衰减
-        elif freq < 300:
-            freq_gain = 0.85
-        else:
-            freq_gain = 1.0
-
-        final_velocity = vel_curve * freq_gain * agc_factor
-
-        # 生成时长（考虑踏板）
-        if pedaled:
-            duration = int(SR * 6.0)  # 踏板延长到 6 秒
-        else:
-            duration = int(SR * 3.0)  # 正常 3 秒
-
-        duration = min(duration, total_samples - start)
-
-        # === 多弦合成 ===
+        # 渲染
         string_outputs = []
         for s in range(num_strings):
-            # 每根弦的频率略有不同（失谐，造成合唱效果）
-            detune_cents = (s - num_strings / 2.0) * 0.5  # ±0.25 音分
+            detune_cents = (s - num_strings / 2.0) * 0.5
             detune_ratio = 2.0 ** (detune_cents / 1200.0)
-            string_freq = freq * detune_ratio
-
+            
+            # 注意：这里不再对 velocity 进行多重除法
             string_wave = piano_string_model(
-                duration,
-                string_freq,
-                final_velocity / num_strings,  # 分配能量
+                min(int(SR * 6.0), total_samples - start),
+                freq * detune_ratio,
+                final_velocity, 
                 s,
                 num_strings
             )
             string_outputs.append(string_wave)
 
-        # 混合多根弦
-        combined = np.sum(string_outputs, axis=0) / num_strings
+        # 混合多根弦：使用均值而非二次求和除法
+        combined = np.mean(np.array(string_outputs), axis=0) if num_strings > 1 else string_outputs[0]
 
-        # === 音板共鸣 ===
+        # 音板共鸣
         resonance = soundboard_resonance(combined, freq)
-        final_wave = combined * 0.7 + resonance * 0.3
+        final_wave = combined * 0.6 + resonance * 0.4
+        
 
         # === 包络（制音器） ===
         if not pedaled:
@@ -388,9 +367,8 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
 
     # 4. 最终限制
     peak = np.max(np.abs(mix_buffer))
-    if peak > 0.001:
-        # 软限制器
-        mix_buffer = (mix_buffer / peak) * 0.95
+    if peak > 0.0001:
+        mix_buffer = mix_buffer / peak * 0.9
 
     # 转换为 WAV
     samples_int = (mix_buffer * 32767).astype(np.int16)
@@ -408,3 +386,4 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
 
     print("✅ 钢琴渲染完成")
     return buf.getvalue(), mix_buffer
+
