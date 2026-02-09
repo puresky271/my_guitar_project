@@ -656,7 +656,7 @@ with col_main:
                 if audio_bytes:
                     st.session_state.audio_out = audio_bytes
                     st.session_state.render_done = True
-                    status.update(label="✅ 音频加载成功，请稍等渲染结果", state="complete", expanded=False)
+                    status.update(label="✅ 音频加载成功，请稍等渲染结果，首次加载可能比较缓慢", state="complete", expanded=False)
                 else:
                     st.session_state.render_done = False
                     status.update(label="❌ 渲染失败", state="error", expanded=False)
@@ -709,3 +709,4 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
