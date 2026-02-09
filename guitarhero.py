@@ -462,16 +462,59 @@ with st.sidebar:
                              help="一根弦震动带动其它弦震动，增加真实感和浑厚度。")
     else:
         st.subheader("🎹 钢琴物理参数")
-        st.info("我不知道为什么有时候钢琴反而听起来更像吉他")
-        reflection = st.slider("音乐厅混响", 0.0, 0.4, step=0.02, key="reflection",
-                               help="模拟音乐厅的混响效果，值越大空间感越强。")
+        
+        brightness = st.slider(
+            "音色明亮度", 
+            0.3, 0.9, 
+            value=0.65,
+            step=0.05, 
+            key="brightness",
+            help="控制整体音色的明暗。数值越大越明亮清脆，越小越温暖柔和。"
+        )
+        
+        pluck_position = st.slider(
+            "琴槌硬度", 
+            0.5, 2.0, 
+            value=1.0,
+            step=0.1, 
+            key="pluck_position",
+            help="模拟琴槌的硬度。数值越大越硬（明亮、有颗粒感），越小越软（温暖、圆润）。"
+        )
+        
+        body_mix = st.slider(
+            "音板共鸣强度", 
+            0.0, 0.5, 
+            value=0.3,
+            step=0.05, 
+            key="body_mix",
+            help="控制音板共鸣的比例。数值越大越有木质感，但过大会失真。"
+        )
+        
+        reflection = st.slider(
+            "音乐厅混响", 
+            0.0, 0.4, 
+            value=0.15,
+            step=0.02, 
+            key="reflection",
+            help="模拟音乐厅的混响效果，值越大空间感越强。"
+        )
+        
+        coupling = st.slider(
+            "力度响应曲线", 
+            1.5, 3.5, 
+            value=2.5,
+            step=0.1, 
+            key="coupling",
+            help="控制力度的非线性响应。数值越大，强弱对比越明显（适合古典）；越小，动态越平缓（适合流行）。"
+        )
+        
         st.markdown("---")
         st.markdown("""
         **钢琴物理特性：**
         - 低音区：单弦
         - 中音区：双弦耦合
         - 高音区：三弦合唱
-        - 自动音板共鸣
+        - 自动延音踏板识别
         """)
 
     st.markdown("---")
@@ -666,7 +709,3 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
-
-
-
