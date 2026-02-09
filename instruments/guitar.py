@@ -228,7 +228,7 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
         # 2. 频率平衡（大幅削减低音，消除金属刺耳声）
         if freq < 150:
-            freq_gain = 0.15  # 极低音（消除刺耳）
+            freq_gain = 0.00  # 极低音（消除刺耳）
         elif freq < 250:
             freq_gain = 0.25  # 低音大幅衰减
         elif freq < 500:
@@ -310,3 +310,4 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
     print("✅ 吉他渲染完成")
     return buf.getvalue(), mix_buffer
+
