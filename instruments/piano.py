@@ -145,14 +145,12 @@ def sympathetic_resonance(mix_buffer, events):
     return mix_buffer
 
 
-def piano_eq_mastering(audio_buffer):
+def piano_eq_mastering(audio_buffer, brightness=0.65):
     """
     钢琴专用母带 EQ（明亮版本）
     
-    目标：
-    1. 保留低频丰满感
-    2. 大幅提升高频明亮度（解决闷音）
-    3. 削减中频"木头味"
+    参数:
+    - brightness: 明亮度 (0.3-0.9)，控制高频提升量
     """
     # 1. 温和的高通（只切极低频 25Hz）
     sos_hp = signal.butter(2, 25, 'hp', fs=SR, output='sos')
@@ -164,27 +162,29 @@ def piano_eq_mastering(audio_buffer):
     audio_buffer = audio_buffer + low_boost
     
     # 3. 中频大幅削减（400-800Hz，消除"闷"感）
-    # 使用宽带陷波
     b_mid1, a_mid1 = signal.iirnotch(500, 15, SR)
     audio_buffer = signal.lfilter(b_mid1, a_mid1, audio_buffer)
     
     b_mid2, a_mid2 = signal.iirnotch(700, 15, SR)
     audio_buffer = signal.lfilter(b_mid2, a_mid2, audio_buffer)
     
-    # 4. 高频大幅提升（2-6kHz，明亮感）
-    # 临场感频段
+    # 4. 高频提升（根据 brightness 参数动态调整）
+    # brightness 越大，高频提升越多
+    boost_factor = brightness * 0.6  # 0.3-0.9 -> 0.18-0.54
+    
+    # 临场感频段 (3kHz)
     b_presence, a_presence = signal.iirpeak(3000, 10, SR)
-    presence_boost = signal.lfilter(b_presence, a_presence, audio_buffer) * 0.4
+    presence_boost = signal.lfilter(b_presence, a_presence, audio_buffer) * boost_factor
     audio_buffer = audio_buffer + presence_boost
     
-    # 空气感频段
+    # 空气感频段 (5kHz)
     b_air, a_air = signal.iirpeak(5000, 8, SR)
-    air_boost = signal.lfilter(b_air, a_air, audio_buffer) * 0.3
+    air_boost = signal.lfilter(b_air, a_air, audio_buffer) * (boost_factor * 0.8)
     audio_buffer = audio_buffer + air_boost
     
-    # 5. 超高频提升（8-12kHz，"空气感"）
+    # 5. 超高频提升（8-12kHz，根据 brightness 调整）
     sos_shelf = signal.butter(2, 8000, 'hp', fs=SR, output='sos')
-    high_shelf = signal.sosfilt(sos_shelf, audio_buffer) * 0.2
+    high_shelf = signal.sosfilt(sos_shelf, audio_buffer) * (boost_factor * 0.5)
     audio_buffer = audio_buffer + high_shelf
     
     # 6. 最高频柔化（避免刺耳，但保留到 15kHz）
@@ -307,8 +307,8 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
             num_strings = 3
         
         # === 力度响应（钢琴的非线性特性）===
-        # 钢琴力度曲线比吉他更陡峭
-        vel_curve = (velocity / 127.0) ** 2.5
+        # 使用 coupling 参数控制力度曲线
+        vel_curve = (velocity / 127.0) ** coupling  # 用户可调的力度曲线
         
         # 频率平衡（钢琴的低音不需要像吉他那样大幅削减）
         if freq < 100:
@@ -319,7 +319,8 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
             freq_gain = 1.0
         
         # 增加基础音量（避免过小）
-        final_velocity = vel_curve * freq_gain * agc_factor * 1.5  # 提高到 1.5 倍
+        # 使用 pluck_pos 作为琴槌硬度系数
+        final_velocity = vel_curve * freq_gain * agc_factor * 1.5 * pluck_pos
         
         # 生成时长（考虑踏板）
         if pedaled:
@@ -351,7 +352,8 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
         
         # === 音板共鸣 ===
         resonance = soundboard_resonance(combined, freq)
-        final_wave = combined * 0.7 + resonance * 0.3
+        # 使用 body_mix 控制音板共鸣强度
+        final_wave = combined * (1.0 - body_mix) + resonance * body_mix
         
         # === 包络（制音器） ===
         if not pedaled:
@@ -371,8 +373,8 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
     # === 后处理链 ===
     print("   应用后处理...")
     
-    # 1. 钢琴专用 EQ
-    mix_buffer = piano_eq_mastering(mix_buffer)
+    # 1. 钢琴专用 EQ（使用 brightness 参数）
+    mix_buffer = piano_eq_mastering(mix_buffer, brightness)
     
     # 2. 多频段压缩
     mix_buffer = multiband_compressor(mix_buffer)
