@@ -194,19 +194,82 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
     try:
         if instrument == "guitar":
             from instruments import guitar as engine_module
-        else:
+        elif instrument == "bass":
+            from instruments import bass as engine_module
+        elif instrument == "guitar_bass":
+            # 混合模式：同时渲染吉他和贝斯
+            from instruments import guitar, bass
+            import numpy as np
+
+            midi_stream_guitar = io.BytesIO(file_bytes)
+            midi_stream_bass = io.BytesIO(file_bytes)
+
+            # 分频点（coupling 参数作为MIDI音符号）
+            split_note = int(coupling)
+
+            # 渲染吉他（高音部分）
+            result_guitar = guitar.midi_to_audio(
+                midi_stream_guitar, brightness, pluck_pos, body_mix, reflection, 0.002
+            )
+
+            # 渲染贝斯（低音部分）
+            result_bass = bass.midi_to_audio(
+                midi_stream_bass, brightness * 0.8, pluck_pos, body_mix, reflection, 0.0
+            )
+
+            if result_guitar and result_bass and result_guitar[1] is not None and result_bass[1] is not None:
+                # 混合两个音轨
+                guitar_samples = result_guitar[1]
+                bass_samples = result_bass[1]
+
+                # 长度对齐
+                max_len = max(len(guitar_samples), len(bass_samples))
+                if len(guitar_samples) < max_len:
+                    guitar_samples = np.pad(guitar_samples, (0, max_len - len(guitar_samples)))
+                if len(bass_samples) < max_len:
+                    bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
+
+                # 音量比例（pluck_pos 作为吉他/贝斯比例）
+                guitar_vol = pluck_pos / (pluck_pos + 1.0)
+                bass_vol = 1.0 / (pluck_pos + 1.0)
+
+                mixed = guitar_samples * guitar_vol + bass_samples * bass_vol
+
+                # 归一化
+                peak = np.max(np.abs(mixed))
+                if peak > 0:
+                    mixed = mixed / peak * 0.95
+
+                # 转换为 WAV
+                samples_int = (mixed * 32767).astype(np.int16)
+                buf = io.BytesIO()
+                import wave
+                with wave.open(buf, 'wb') as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(48000)
+                    wf.writeframes(samples_int.tobytes())
+
+                return buf.getvalue()
+            else:
+                return None
+        else:  # piano
             from instruments import piano as engine_module
 
-        midi_stream = io.BytesIO(file_bytes)
-        result = engine_module.midi_to_audio(
-            midi_stream, brightness, pluck_pos, body_mix, reflection, coupling
-        )
+        # 单一乐器模式
+        if instrument in ["guitar", "bass", "piano"]:
+            midi_stream = io.BytesIO(file_bytes)
+            result = engine_module.midi_to_audio(
+                midi_stream, brightness, pluck_pos, body_mix, reflection, coupling
+            )
 
-        if result is None or not isinstance(result, tuple) or result[0] is None:
-            return None
-        return result[0]
+            if result is None or not isinstance(result, tuple) or result[0] is None:
+                return None
+            return result[0]
     except Exception as e:
         st.error(f"渲染引擎错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -440,7 +503,8 @@ def render_sync_player(audio_bytes):
 with st.sidebar:
     st.title("音色实验室")
     st.caption("在调参后请手动重新生成，虽然我也不建议你改就是了")
-    st.caption("因为不同的MIDI文件所使用的演奏乐器不同，有些天生适合钢琴，有些天生适合吉他，如果你觉得某一种模式很怪，就换成另一种")
+    st.caption(
+        "因为不同的MIDI文件所使用的演奏乐器不同，如果你觉得某一种模式很怪，就换成另一种")
     st.markdown("---")
 
     # 乐器状态管理
@@ -450,64 +514,21 @@ with st.sidebar:
         st.subheader("🎸 吉他物理参数")
         pluck_position = st.slider(
             "拨弦位置（近琴桥 ⇄ 近指板）", 0.08, 0.40, step=0.01, key="pluck_position",
-            help="决定音色是清脆还是温暖。数值越小越清脆（近琴桥），数值越大越圆润（近指板）。"
         )
-        body_mix = st.slider("琴箱共鸣强度", 0.0, 0.6, step=0.02, key="body_mix",
-                             help="越大越有木头味（Boxy），但过大会导致声音变闷。")
-        reflection = st.slider("空间反射感", 0.0, 0.3, step=0.01, key="reflection",
-                               help="模拟琴体内部的回响，增加空气感。")
-        brightness = st.slider("弦的亮度", 0.2, 0.8, step=0.02, key="brightness",
-                               help="控制弦振动的高频保留时间，值越大声音越明亮。")
-        coupling = st.slider("弦间共振（串扰）", 0.0, 0.01, step=0.0005, key="coupling",
-                             help="一根弦震动带动其它弦震动，增加真实感和浑厚度。")
-    else:
+        body_mix = st.slider("琴箱共鸣强度", 0.0, 0.6, step=0.02, key="body_mix")
+        reflection = st.slider("空间反射感", 0.0, 0.3, step=0.01, key="reflection")
+        brightness = st.slider("弦的亮度", 0.2, 0.8, step=0.02, key="brightness")
+        coupling = st.slider("弦间共振（串扰）", 0.0, 0.01, step=0.0005, key="coupling")
+
+    elif instrument == "piano":
         st.subheader("🎹 钢琴物理参数")
-        
-        brightness = st.slider(
-            "音色明亮度", 
-            0.3, 0.9, 
-            value=0.65,
-            step=0.05, 
-            key="brightness",
-            help="控制整体音色的明暗。数值越大越明亮清脆，越小越温暖柔和。"
-        )
-        
-        pluck_position = st.slider(
-            "琴槌硬度", 
-            0.5, 2.0, 
-            value=1.0,
-            step=0.1, 
-            key="pluck_position",
-            help="模拟琴槌的硬度。数值越大越硬（明亮、有颗粒感），越小越软（温暖、圆润）。"
-        )
-        
-        body_mix = st.slider(
-            "音板共鸣强度", 
-            0.0, 0.5, 
-            value=0.3,
-            step=0.05, 
-            key="body_mix",
-            help="控制音板共鸣的比例。数值越大越有木质感，但过大会失真。"
-        )
-        
-        reflection = st.slider(
-            "音乐厅混响", 
-            0.0, 0.4, 
-            value=0.15,
-            step=0.02, 
-            key="reflection",
-            help="模拟音乐厅的混响效果，值越大空间感越强。"
-        )
-        
-        coupling = st.slider(
-            "力度响应曲线", 
-            1.5, 3.5, 
-            value=2.5,
-            step=0.1, 
-            key="coupling",
-            help="控制力度的非线性响应。数值越大，强弱对比越明显（适合古典）；越小，动态越平缓（适合流行）。"
-        )
-        
+
+        brightness = st.slider("音色明亮度", 0.3, 0.9, value=0.65, step=0.05, key="brightness")
+        pluck_position = st.slider("琴槌硬度", 0.5, 2.0, value=1.0, step=0.1, key="pluck_position")
+        body_mix = st.slider("音板共鸣强度", 0.0, 0.5, value=0.3, step=0.05, key="body_mix")
+        reflection = st.slider("音乐厅混响", 0.0, 0.4, value=0.15, step=0.02, key="reflection")
+        coupling = st.slider("力度响应曲线", 1.5, 3.5, value=2.5, step=0.1, key="coupling")
+
         st.markdown("---")
         st.markdown("""
         **钢琴物理特性：**
@@ -517,10 +538,46 @@ with st.sidebar:
         - 自动延音踏板识别
         """)
 
+    elif instrument == "bass":
+        st.subheader("🎸 贝斯物理参数")
+
+        brightness = st.slider("音色明亮度", 0.2, 0.7, value=0.4, step=0.05, key="brightness")
+        pluck_position = st.slider("拨弦力度曲线", 1.2, 2.5, value=1.8, step=0.1, key="pluck_position")
+        body_mix = st.slider("箱体共鸣强度", 0.0, 0.6, value=0.3, step=0.05, key="body_mix")
+        reflection = st.slider("房间混响", 0.0, 0.3, value=0.1, step=0.02, key="reflection")
+
+        st.markdown("---")
+        st.markdown("""
+        **贝斯特性：**
+        - 有效音域：E1-C4
+        - 低频衰减极慢
+        - 自动低频增强
+        - 拨弦颗粒感
+        """)
+
+    elif instrument == "guitar_bass":
+        st.subheader("🎸+🎸 混合模式")
+        st.info("如果你觉得自己听不到贝斯声，这是正常的😂")
+
+        brightness = st.slider("整体明亮度", 0.3, 0.8, value=0.5, step=0.05, key="brightness")
+        pluck_position = st.slider("吉他/贝斯音量比", 0.3, 3.0, value=1.0, step=0.1, key="pluck_position")
+        body_mix = st.slider("箱体共鸣", 0.0, 0.5, value=0.28, step=0.02, key="body_mix")
+        reflection = st.slider("空间反射感", 0.0, 0.3, value=0.12, step=0.01, key="reflection")
+        coupling = st.slider("分频点（MIDI音符）", 45, 60, value=52, step=1, key="coupling")
+
+        st.markdown("---")
+        st.markdown("""
+        **混合模式特性：**
+        - 自动音域分配
+        - 贝斯低频饱满
+        - 吉他中高频明亮
+        """)
+
     st.markdown("---")
     if st.button("🔄 恢复默认音色", use_container_width=True):
         st.session_state.reset_tone = True
         st.rerun()
+
 
 # --- 主界面标题区 ---
 if instrument == 'guitar':
@@ -528,6 +585,16 @@ if instrument == 'guitar':
     title = "Karplus-Strong 吉他工作室"
     subtitle = "物理建模 · MIDI → 原声吉他 · 高保真合成"
     gradient = "linear-gradient(90deg,#0f2027,#203a43,#2c5364)"
+elif instrument == 'bass':
+    icon = "🎸"
+    title = "Karplus-Strong 贝斯工作室"
+    subtitle = "低频物理建模 · MIDI → 电贝斯 · 厚重低音"
+    gradient = "linear-gradient(90deg,#1a0033,#2d0a4e,#4a0e7a)"
+elif instrument == 'guitar_bass':
+    icon = "🎸🎸"
+    title = "Karplus-Strong 混合工作室"
+    subtitle = "吉他+贝斯 · 自动音域分配 · 全频段覆盖"
+    gradient = "linear-gradient(90deg,#0a192f,#172a45,#1e3a5f)"
 else:
     icon = "🎹"
     title = "Karplus-Strong 钢琴工作室"
@@ -546,13 +613,21 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 乐器切换按钮
-col_inst1, col_inst2, col_inst3 = st.columns([1, 1, 3])
+col_inst1, col_inst2, col_inst3, col_inst4, col_inst5 = st.columns([1, 1, 1, 1, 1])
 with col_inst1:
-    if st.button("🎸 吉他模式", type="primary" if instrument == "guitar" else "secondary", use_container_width=True):
+    if st.button("🎸 吉他", type="primary" if instrument == "guitar" else "secondary", use_container_width=True):
         st.session_state.instrument = "guitar"
         st.rerun()
 with col_inst2:
-    if st.button("🎹 钢琴模式", type="primary" if instrument == "piano" else "secondary", use_container_width=True):
+    if st.button("🎸 贝斯", type="primary" if instrument == "bass" else "secondary", use_container_width=True):
+        st.session_state.instrument = "bass"
+        st.rerun()
+with col_inst3:
+    if st.button("🎸+🎸 混合", type="primary" if instrument == "guitar_bass" else "secondary", use_container_width=True):
+        st.session_state.instrument = "guitar_bass"
+        st.rerun()
+with col_inst4:
+    if st.button("🎹 钢琴", type="primary" if instrument == "piano" else "secondary", use_container_width=True):
         st.session_state.instrument = "piano"
         st.rerun()
 
@@ -632,6 +707,16 @@ with col_main:
             status_text = "正在进行吉他弦振动模拟..."
             init_text = "初始化 128 根虚拟吉他弦..."
             parse_text = "解析 MIDI 事件并进行活跃弦追踪..."
+        elif instrument == "bass":
+            button_text = "🎸 BassMaster，启动！"
+            status_text = "正在进行贝斯低频建模..."
+            init_text = "初始化贝斯低音弦（E1-C4）..."
+            parse_text = "解析 MIDI 事件并渲染厚重低音..."
+        elif instrument == "guitar_bass":
+            button_text = "🎸+🎸 组一被子乐队！"
+            status_text = "正在进行双轨渲染..."
+            init_text = "初始化吉他+贝斯混合引擎..."
+            parse_text = "自动分配音域并混合渲染..."
         else:
             button_text = "🎹 PianoMaster，启动！"
             status_text = "正在进行钢琴物理建模..."
@@ -656,7 +741,7 @@ with col_main:
                 if audio_bytes:
                     st.session_state.audio_out = audio_bytes
                     st.session_state.render_done = True
-                    status.update(label="✅ 音频加载成功，请稍等渲染结果，首次加载可能比较缓慢", state="complete", expanded=False)
+                    status.update(label="✅ 音频加载成功，请稍等渲染结果", state="complete", expanded=False)
                 else:
                     st.session_state.render_done = False
                     status.update(label="❌ 渲染失败", state="error", expanded=False)
@@ -706,8 +791,6 @@ with col_output:
 # --- 页脚 ---
 st.markdown("---")
 st.markdown(
-    "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑爆改</p>",
+    "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
-
