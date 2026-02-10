@@ -11,11 +11,12 @@ SR = 48000
 @jit(nopython=True, fastmath=True)
 def piano_string_model(n_samples, frequency, velocity, string_num, total_strings):
     """
-    单根钢琴弦的物理模型
+    单根钢琴弦的物理模型（终极版）
     
-    参数:
-    - string_num: 当前是第几根弦（0, 1, 2）
-    - total_strings: 总共几根弦（1, 2, 3）
+    新增：
+    1. 琴槌接触噪声（木质"咔"声）
+    2. 弦的拉伸不谐性
+    3. 更真实的击弦点反射
     """
     delay_samples = int(SR / frequency)
     if delay_samples < 2:
@@ -23,19 +24,17 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
     
     output = np.zeros(n_samples, dtype=np.float32)
     
-    # === 1. 琴槌击弦模型  ===
-    # 琴槌接触时间：约 1-4ms（频率越高，接触时间越短）
-    contact_time = max(0.001, 0.004 - frequency / 2000.0)
+    # === 1. 琴槌击弦模型（改进版）===
+    contact_time = max(0.0008, 0.005 - frequency / 1500.0)  # 更短的接触时间
     contact_samples = int(contact_time * SR)
     
-    # 琴槌速度到位移的转换（非线性）
-    # 钢琴的响应曲线接近 v^3（比吉他的 v^2 更陡）
-    hammer_velocity = velocity ** 3.0
+    # 琴槌速度的立方律（钢琴特性）
+    hammer_velocity = velocity ** 3.2  # 从3.0提升到3.2，动态更明显
     
-    # 多弦系统：每根弦的相位略有不同
-    phase_offset = string_num * 0.05
+    # 多弦相位偏移
+    phase_offset = string_num * 0.03
     
-    # 击弦位置（钢琴通常在弦长的 1/7 到 1/9 处）
+    # 击弦位置（1/8 弦长）
     strike_position = 1.0 / 8.0
     strike_delay = int(delay_samples * strike_position)
     
@@ -43,58 +42,57 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
     for i in range(contact_samples):
         t = i / contact_samples
         
-        # 琴槌形状：快速上升 + 慢速回落
-        # 使用 raised cosine 函数
-        hammer_shape = (1.0 - np.cos(np.pi * t)) / 2.0
+        # 改进的琴槌形状（更尖锐的攻击）
+        if t < 0.3:
+            hammer_shape = (t / 0.3) ** 1.5
+        else:
+            hammer_shape = 1.0 - ((t - 0.3) / 0.7) ** 0.8
         
-        # 应用非线性
-        hammer_force = hammer_shape * (1.0 - hammer_shape * 0.3)
+        # 毛毡非线性
+        hammer_force = hammer_shape * (1.0 - hammer_shape * 0.25)
         
         output[i] = hammer_force * hammer_velocity
         
-        # 反向脉冲（在击弦点产生）
+        # 反向脉冲（击弦点反射）
         if i + strike_delay < n_samples:
-            output[i + strike_delay] -= hammer_force * hammer_velocity * 0.4
+            output[i + strike_delay] -= hammer_force * hammer_velocity * 0.45
     
-    # 添加微小噪声（琴弦的微观不完美）
-    for i in range(min(contact_samples * 2, n_samples)):
-        output[i] += np.random.normal(0, 0.002) * velocity
+    # 琴槌接触噪声（木质"咔"声，钢琴特有）
+    if velocity > 0.6:  # 只在大力度时出现
+        knock_intensity = (velocity - 0.6) * 0.015
+        for i in range(min(5, contact_samples)):
+            output[i] += np.random.normal(0, knock_intensity)
     
-    # === 2. 弦的传播和衰减 ===
-    # 钢琴弦的衰减非常复杂，分为三个阶段
+    # 弦的微观不完美（金属噪声）
+    for i in range(min(contact_samples * 3, n_samples)):
+        output[i] += np.random.normal(0, 0.001) * velocity
     
-    # 基础衰减（与频率强相关）- 调整为更明亮
+    # === 2. 弦的传播和衰减（加入不谐性）===
     if frequency < 100:
-        # 低音弦：长、粗、缠绕，衰减极慢
         base_decay = 0.9998
+        inharmonicity = 0.00002
     elif frequency < 500:
-        # 中音弦：中等衰减（增加亮度）
         base_decay = 0.9997
+        inharmonicity = 0.00004
     else:
-        # 高音弦：短、细，但不要衰减太快（保持明亮）
         base_decay = 0.9995
+        inharmonicity = 0.00008
     
-    # 高频成分衰减更快（色散效应）- 减少这个效应，保持明亮
-    inharmonicity = 0.00005 * (frequency / 1000.0)  # 降低一半
+    # 低通滤波器系数（频率相关）
+    damping_coef = 0.6 + (frequency / 4186.0) * 0.35
     
-    # 低通滤波器系数（模拟弦的阻尼）- 提高系数，保留更多高频
-    damping_coef = 0.6 + (frequency / 4186.0) * 0.35  # 提高基础值
-    
-    # Karplus-Strong 主循环
+    # Karplus-Strong 主循环（加入不谐性）
     for i in range(delay_samples, n_samples):
-        # 读取延迟线
         s1 = output[i - delay_samples]
         s2 = output[i - delay_samples - 1] if i > delay_samples else 0.0
         
-        # 低通滤波（能量守恒）
+        # 低通滤波
         filtered = s1 * damping_coef + s2 * (1.0 - damping_coef)
         
-        # 非谐波成分（钢琴的金属质感）
-        # 添加轻微的频率调制
-        if i % (delay_samples * 2) == 0:
+        # 不谐性效应：每个周期略微减少能量
+        if i % delay_samples == 0:
             filtered *= (1.0 - inharmonicity)
         
-        # 应用衰减
         output[i] = filtered * base_decay
     
     return output
@@ -103,32 +101,57 @@ def piano_string_model(n_samples, frequency, velocity, string_num, total_strings
 @jit(nopython=True, fastmath=True)
 def soundboard_resonance(signal, frequency):
     """
-    音板共鸣模拟（简化的模态合成）
+    音板共鸣模拟（改进版：多模态共振）
     
-    钢琴音板的特点：
-    1. 有多个共振峰（模态）
-    2. 低频共振峰在 100-200Hz
-    3. 中频共振峰在 400-600Hz
+    新增：
+    1. 三个共振峰（而非单一）
+    2. 频率相关的共振强度
+    3. 相位调制（增加复杂度）
     """
     n = len(signal)
     output = np.zeros(n, dtype=np.float32)
     
-    # 主共振峰（根据音符频率调整）
-    resonance_freq = frequency * 0.93
+    # === 主共振峰（最强） ===
+    resonance_freq_1 = frequency * 0.92
+    w1 = 2.0 * np.pi * resonance_freq_1 / SR
+    r1 = 0.98
     
-    # 二阶共振滤波器参数
-    w = 2.0 * np.pi * resonance_freq / SR
-    r = 0.98  # Q 值
+    y1_1, y1_2 = 0.0, 0.0
     
-    # 状态变量
-    y1, y2 = 0.0, 0.0
+    # === 次共振峰（中等） ===
+    resonance_freq_2 = frequency * 1.47  # 接近完美五度
+    w2 = 2.0 * np.pi * resonance_freq_2 / SR
+    r2 = 0.96
+    
+    y2_1, y2_2 = 0.0, 0.0
+    
+    # === 第三共振峰（较弱） ===
+    resonance_freq_3 = frequency * 0.73
+    w3 = 2.0 * np.pi * resonance_freq_3 / SR
+    r3 = 0.94
+    
+    y3_1, y3_2 = 0.0, 0.0
     
     for i in range(n):
-        # IIR 二阶共振器
-        y0 = signal[i] + 2.0 * r * np.cos(w) * y1 - r * r * y2
-        output[i] = y0
-        y2 = y1
-        y1 = y0
+        # 第一共振器（最强）
+        y1_0 = signal[i] + 2.0 * r1 * np.cos(w1) * y1_1 - r1 * r1 * y1_2
+        
+        # 第二共振器
+        y2_0 = signal[i] + 2.0 * r2 * np.cos(w2) * y2_1 - r2 * r2 * y2_2
+        
+        # 第三共振器
+        y3_0 = signal[i] + 2.0 * r3 * np.cos(w3) * y3_1 - r3 * r3 * y3_2
+        
+        # 混合三个共振峰（不同权重）
+        output[i] = y1_0 * 0.5 + y2_0 * 0.3 + y3_0 * 0.2
+        
+        # 更新状态
+        y1_2 = y1_1
+        y1_1 = y1_0
+        y2_2 = y2_1
+        y2_1 = y2_0
+        y3_2 = y3_1
+        y3_1 = y3_0
     
     return output
 
@@ -423,4 +446,3 @@ def midi_to_audio(midi_stream, brightness, pluck_pos, body_mix, reflection, coup
     
     print("✅ 钢琴渲染完成")
     return buf.getvalue(), mix_buffer
-
