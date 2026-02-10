@@ -20,40 +20,43 @@ def bass_string_model(n_samples, delay_samples, velocity, brightness):
     """
     output = np.zeros(n_samples, dtype=np.float32)
 
-    # === 1. 激励信号（贝斯的拨弦更"肉"） ===
-    burst_len = int(delay_samples * 1.2)  # 贝斯激励更长
+    # === 1. 激励信号（改进的贝斯拨弦） ===
+    burst_len = int(delay_samples * 1.5)  # 更长的激励
     if burst_len > n_samples:
         burst_len = n_samples
-    
-    # [BUGFIX] 防止 burst_len 过小时除以 0
+
     rise_len = burst_len // 4
     if rise_len < 1:
         rise_len = 1
 
-    # 使用更厚重的激励波形
+    # 使用更真实的拨弦波形（梯形 + 谐波丰富化）
     for i in range(burst_len):
-        # 梯形波（而非三角波），更"厚实"
+        # 基础梯形波
         if i < rise_len:
-            shape = i / rise_len
+            shape = (i / rise_len) ** 0.8  # 快速上升
         elif i < 3 * rise_len:
             shape = 1.0
         else:
-            # 这里的逻辑也需要适配 rise_len 以防越界，但在 Numba 中通常 ok
-            # 简单修改为基于 rise_len 的下降
             fall_phase = i - 3 * rise_len
-            shape = 1.0 - (fall_phase / rise_len)
-            if shape < 0: shape = 0.0
+            shape = 1.0 - (fall_phase / rise_len) ** 1.2  # 慢速下降
+            if shape < 0:
+                shape = 0.0
 
-        # 少量噪声
-        noise = np.random.uniform(-0.15, 0.15)
+        # 添加二次谐波（贝斯特有的"厚实感"）
+        harmonic_phase = (i / delay_samples) * 2.0 * np.pi
+        harmonic = np.sin(harmonic_phase * 2.0) * 0.15  # 二倍频
+        harmonic += np.sin(harmonic_phase * 3.0) * 0.08  # 三倍频
 
-        # 低通平滑（贝斯高频少）
+        # 拨弦噪声（金属弦的"咔"声）
+        noise = np.random.uniform(-0.12, 0.12)
+
+        # 混合
         if i > 0:
-            smoothed = shape * 0.7 + output[i - 1] * 0.3
+            smoothed = (shape + harmonic) * 0.75 + output[i - 1] * 0.25
         else:
-            smoothed = shape
+            smoothed = shape + harmonic
 
-        output[i] = (smoothed * 0.85 + noise * 0.15) * velocity
+        output[i] = (smoothed * 0.82 + noise * 0.18) * velocity
 
     # === 2. 物理反馈循环（贝斯衰减极慢） ===
     freq = SR / delay_samples
@@ -128,10 +131,14 @@ def bass_eq_mastering(audio_buffer):
     sos_hp = signal.butter(4, 30, 'hp', fs=SR, output='sos')
     audio_buffer = signal.sosfilt(sos_hp, audio_buffer)
 
-    # 2. 低频核心提升（80Hz）
+    # 2. 低频核心提升（80Hz + 50Hz 双峰）
     b_low, a_low = signal.iirpeak(80, 6, SR)
-    low_boost = signal.lfilter(b_low, a_low, audio_buffer) * 0.2
-    audio_buffer = audio_buffer + low_boost
+    low_boost = signal.lfilter(b_low, a_low, audio_buffer) * 0.25
+
+    b_sub, a_sub = signal.iirpeak(50, 4, SR)
+    sub_boost = signal.lfilter(b_sub, a_sub, audio_buffer) * 0.15
+
+    audio_buffer = audio_buffer + low_boost + sub_boost
 
     # 3. 中低频削减（250-400Hz，消除"泥泞"）
     b_mud, a_mud = signal.iirnotch(320, 10, SR)
