@@ -730,7 +730,7 @@ with st.sidebar:
         clamp("coupling", 45, 60, 52)
 
         brightness = st.slider("整体明亮度", 0.3, 0.8, value=0.5, step=0.05, key="brightness")
-        pluck_position = st.slider("吉他/贝斯音量比", 0.3, 3.0, value=1.0, step=0.1, key="pluck_position")
+        pluck_position = st.slider("吉他/贝斯音量比", 0.3, 3.0, value=1.6, step=0.1, key="pluck_position")
         body_mix = st.slider("箱体共鸣", 0.0, 0.5, value=0.28, step=0.02, key="body_mix")
         reflection = st.slider("空间反射感", 0.0, 0.3, value=0.12, step=0.01, key="reflection")
         coupling = st.slider("分频点（MIDI音符）", 45, 60, value=52, step=1, key="coupling")
@@ -1065,4 +1065,5 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
 
