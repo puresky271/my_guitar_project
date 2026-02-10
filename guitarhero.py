@@ -1,4 +1,3 @@
-
 import numpy as np
 import streamlit as st
 import io
@@ -324,6 +323,112 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
                 return buf.getvalue()
             else:
                 return None
+
+        elif instrument == "drums":
+            from instruments import drums as engine_module
+
+            midi_stream = io.BytesIO(file_bytes)
+            result = engine_module.midi_to_audio(
+                midi_stream, brightness, pluck_pos, body_mix, reflection, coupling
+            )
+            if result is None or not isinstance(result, tuple) or result[0] is None:
+                return None
+            return result[0]
+
+        elif instrument == "full_band":
+            # 全乐队渲染：吉他 + 贝斯 + 鼓组
+            from instruments import guitar, bass, drums
+            import numpy as np
+
+            # 读取原始 MIDI 数据（需要复制）
+            original_data = file_bytes
+
+            # 1. 渲染吉他声部（中高频）
+            midi_stream_guitar = io.BytesIO(original_data)
+            result_guitar = guitar.midi_to_audio(
+                midi_stream_guitar, brightness * 1.1, pluck_pos * 0.9, body_mix * 0.8, reflection * 0.9, 0.003
+            )
+
+            # 2. 渲染贝斯声部（低频）
+            midi_stream_bass = io.BytesIO(original_data)
+            result_bass = bass.midi_to_audio(
+                midi_stream_bass, brightness * 0.9, pluck_pos * 1.2, body_mix * 1.2, reflection * 0.8, 0.0
+            )
+
+            # 3. 渲染鼓组声部（全频段打击乐）
+            midi_stream_drums = io.BytesIO(original_data)
+            result_drums = drums.midi_to_audio(
+                midi_stream_drums, brightness * 0.8, pluck_pos * 0.7, body_mix * 0.5, reflection * 1.2, coupling
+            )
+
+            # 检查所有渲染结果
+            if not all([result_guitar, result_bass, result_drums]):
+                st.error("某个声部渲染失败")
+                return None
+
+            # 获取音频数据
+            if result_guitar[1] is None or result_bass[1] is None or result_drums[1] is None:
+                st.error("音频数据为空")
+                return None
+
+            guitar_samples = result_guitar[1]
+            bass_samples = result_bass[1]
+            drums_samples = result_drums[1]
+
+            # 统一长度
+            max_len = max(len(guitar_samples), len(bass_samples), len(drums_samples))
+
+            if len(guitar_samples) < max_len:
+                guitar_samples = np.pad(guitar_samples, (0, max_len - len(guitar_samples)))
+            if len(bass_samples) < max_len:
+                bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
+            if len(drums_samples) < max_len:
+                drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
+
+            # 音量平衡（使用 coupling 参数控制分频点，但这里我们用 pluck_pos 作为音量平衡）
+            # 默认：吉他40%，贝斯35%，鼓组25%
+            base_guitar_vol = 0.40
+            base_bass_vol = 0.35
+            base_drums_vol = 0.25
+
+            # 使用 pluck_pos 调整平衡（1.0为平衡点）
+            if pluck_pos > 1.0:
+                # 强调吉他
+                guitar_vol = base_guitar_vol * (1.0 + (pluck_pos - 1.0) * 0.5)
+                bass_vol = base_bass_vol * (1.0 - (pluck_pos - 1.0) * 0.3)
+                drums_vol = base_drums_vol * (1.0 - (pluck_pos - 1.0) * 0.2)
+            else:
+                # 强调贝斯和鼓组
+                guitar_vol = base_guitar_vol * pluck_pos
+                bass_vol = base_bass_vol * (1.0 + (1.0 - pluck_pos) * 0.3)
+                drums_vol = base_drums_vol * (1.0 + (1.0 - pluck_pos) * 0.2)
+
+            # 确保总音量不超过1.0
+            total_vol = guitar_vol + bass_vol + drums_vol
+            if total_vol > 1.0:
+                guitar_vol /= total_vol
+                bass_vol /= total_vol
+                drums_vol /= total_vol
+
+            # 混合
+            mixed = guitar_samples * guitar_vol + bass_samples * bass_vol + drums_samples * drums_vol
+
+            # 限制和归一化
+            peak = np.max(np.abs(mixed))
+            if peak > 0:
+                mixed = mixed / peak * 0.95
+
+            # 转换为 WAV
+            samples_int = (mixed * 32767).astype(np.int16)
+            buf = io.BytesIO()
+            import wave
+            with wave.open(buf, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(48000)
+                wf.writeframes(samples_int.tobytes())
+            return buf.getvalue()
+
         else:  # piano
             from instruments import piano as engine_module
 
@@ -637,6 +742,56 @@ with st.sidebar:
         - 贝斯低频饱满
         - 吉他中高频明亮
         """)
+    # --- 在侧边栏部分添加 drums 和 full_band 的参数控制 ---
+    # 修改侧边栏代码，在钢琴部分之后添加：
+
+    elif instrument == "drums":
+        st.subheader("🥁 鼓组物理参数")
+        clamp("brightness", 0.3, 0.9, 0.7)
+        clamp("pluck_position", 0.5, 2.0, 1.2)
+        clamp("body_mix", 0.0, 0.8, 0.4)
+        clamp("reflection", 0.0, 0.5, 0.2)
+        clamp("coupling", 1.0, 3.0, 2.0)
+
+        brightness = st.slider("鼓皮硬度", 0.3, 0.9, value=0.7, step=0.05, key="brightness")
+        pluck_position = st.slider("打击力度响应", 0.5, 2.0, value=1.2, step=0.1, key="pluck_position")
+        body_mix = st.slider("腔体共鸣", 0.0, 0.8, value=0.4, step=0.05, key="body_mix")
+        reflection = st.slider("房间混响", 0.0, 0.5, value=0.2, step=0.02, key="reflection")
+        coupling = st.slider("鼓组压缩度", 1.0, 3.0, value=2.0, step=0.1, key="coupling")
+
+        st.markdown("---")
+        st.markdown("""
+        **鼓组特性：**
+        - 支持通用 MIDI 鼓组映射 (GM)
+        - 底鼓、军鼓、踩镲、通鼓、镲片
+        - 动态打击力度响应
+        - 房间声学模拟
+        """)
+
+    elif instrument == "full_band":
+        st.subheader("🎤+🎸+🥁 乐队合奏模式")
+        st.info("这是完整乐队渲染模式，自动分配各声部")
+
+        clamp("brightness", 0.4, 0.9, 0.7)
+        clamp("pluck_position", 0.8, 2.5, 1.5)
+        clamp("body_mix", 0.0, 0.6, 0.35)
+        clamp("reflection", 0.0, 0.4, 0.18)
+        clamp("coupling", 40, 65, 52)
+
+        brightness = st.slider("整体明亮度", 0.4, 0.9, value=0.7, step=0.05, key="brightness")
+        pluck_position = st.slider("动态平衡", 0.8, 2.5, value=1.5, step=0.1, key="pluck_position")
+        body_mix = st.slider("乐器共鸣", 0.0, 0.6, value=0.35, step=0.05, key="body_mix")
+        reflection = st.slider("音乐厅混响", 0.0, 0.4, value=0.18, step=0.02, key="reflection")
+        coupling = st.slider("分频点（MIDI音符）", 40, 65, value=52, step=1, key="coupling")
+
+        st.markdown("---")
+        st.markdown("""
+        **乐队模式特性：**
+        - 自动音域分配：低音→贝斯，中音→吉他，打击乐→鼓组
+        - 动态平衡控制：可调节各声部比例
+        - 完整频段覆盖：20Hz-20kHz
+        - 多乐器物理建模
+        """)
 
     st.markdown("---")
     if st.button("🔄 恢复默认音色", use_container_width=True):
@@ -651,12 +806,12 @@ col_header_spacer, col_header_toggle = st.columns([6, 1.2])
 
 with col_header_toggle:
     # 这里的 key 保证了状态会被记住
-    is_transparent = st.toggle("👁️ 沉浸模式", value=False, help="开启后背景变透明，可以看清背景图")
+    is_transparent = st.toggle("👁️ 沉浸模式", value=False, help="让soyo和猫猫的脸露出来")
 
 # 2. 定义默认（有颜色）的样式
 text_color = "white"
 text_shadow = "none"
-border_style = "none" # 默认无边框
+border_style = "none"  # 默认无边框
 
 if instrument == 'guitar':
     icon = "🎸"
@@ -679,7 +834,24 @@ elif instrument == 'guitar_bass':
     gradient = "linear-gradient(135deg, #FB8DA0 0%, #FFC0CB 50%, #D97757 50%, #8B5E4F 100%)"
     text_shadow = "0px 2px 4px rgba(0,0,0,0.6)"
 
-else: # piano
+elif instrument == 'drums':
+    icon = "🥁"
+    title = "Karplus-Strong 鼓组工作室"
+    subtitle = "节奏建模 · MIDI → 原声鼓组 · 动态打击"
+    # 深紫渐变（和钢琴一个气质，但更有力量）
+    gradient = "linear-gradient(90deg, #1b1028, #2e1a47, #3d2466)"
+    text_shadow = "0 2px 6px rgba(0,0,0,0.8)"
+
+elif instrument == 'full_band':
+    icon = "🎤🎸🎸🎸🥁"
+    title = "Karplus-Strong 组一辈子乐队"
+    subtitle = "全乐器自动编配 · 吉他+贝斯+鼓 · 全频段覆盖"
+    # 深蓝 → 浅蓝，不要绿色
+    gradient = "linear-gradient(90deg, #0b2239, #123a5a, #1e5f8a, #4da3d9)"
+    text_shadow = "0 2px 6px rgba(0,0,0,0.7)"
+
+
+else:  # piano
     icon = "🎹"
     title = "Karplus-Strong 钢琴工作室"
     subtitle = "多弦耦合 · MIDI → 三角钢琴 · 音乐厅混响"
@@ -689,12 +861,10 @@ else: # piano
 # 极简高透明方案
 if is_transparent:
     # --- 这里是核心修改点 ---
-    gradient = "transparent"  # 彻底去掉背景颜色
-    backdrop_filter = "backdrop-filter: none; -webkit-backdrop-filter: none;" # 确保没有毛玻璃
-    border_style = "1px solid rgba(255, 255, 255, 0.2)" # 留一条极细的白边勾勒轮廓，不想要可以改 none
+    gradient = "rgba(255, 255, 255, 0.03)"  # 和信息卡一样的透明度
+    border_style = "1px solid rgba(255, 255, 255, 0.08)"  # 和信息卡一致
     text_color = "#ffffff"
-    # 加强文字阴影，这是透明模式下看清文字的唯一靠山
-    text_shadow = "0 2px 15px rgba(0,0,0,1), 0 0 5px rgba(0,0,0,0.8)"
+    text_shadow = "0 2px 8px rgba(0,0,0,0.8)"
 # 4. 渲染标题卡片
 style_block = f"""
 background: {gradient};
@@ -707,8 +877,7 @@ margin-bottom: 20px;
 transition: all 0.3s ease;
 """
 
-if is_transparent:
-    style_block += "backdrop-filter: blur(4px);"
+# 移除毛玻璃效果
 
 st.markdown(f"""
 <div style='{style_block}'>
@@ -723,26 +892,27 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-
 # 乐器切换按钮
-col_inst1, col_inst2, col_inst3, col_inst4, col_inst5 = st.columns([1, 1, 1, 1, 1])
-with col_inst1:
-    if st.button("🎸 *吉他*", type="primary" if instrument == "guitar" else "secondary", use_container_width=True):
-        st.session_state.instrument = "guitar"
-        st.rerun()
-with col_inst2:
-    if st.button("🎸 *贝斯*", type="primary" if instrument == "bass" else "secondary", use_container_width=True):
-        st.session_state.instrument = "bass"
-        st.rerun()
-with col_inst3:
-    if st.button("🎸+🎸 *混合*", type="primary" if instrument == "guitar_bass" else "secondary", use_container_width=True):
-        st.session_state.instrument = "guitar_bass"
-        st.rerun()
-with col_inst4:
-    if st.button("🎹 *钢琴*", type="primary" if instrument == "piano" else "secondary", use_container_width=True):
-        st.session_state.instrument = "piano"
-        st.rerun()
+cols = st.columns(6)
+
+buttons = [
+    ("🎤🎸🎸🎸🥁 乐队", "full_band"),
+    ("🎸 吉他", "guitar"),
+    ("🎸 贝斯", "bass"),
+    ("🎸+🎸 混合", "guitar_bass"),
+    ("🥁 鼓组", "drums"),
+    ("🎹 钢琴", "piano"),
+]
+
+for col, (label, key) in zip(cols, buttons):
+    with col:
+        if st.button(
+                label,
+                type="primary" if instrument == key else "secondary",
+                use_container_width=True,
+        ):
+            st.session_state.instrument = key
+            st.rerun()
 
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
@@ -814,11 +984,21 @@ with col_main:
             init_text = "初始化贝斯低音弦（E1-C4）..."
             parse_text = "解析 MIDI 事件并渲染厚重低音..."
         elif instrument == "guitar_bass":
-            button_text = "🎸+🎸**组一被子乐队！**"
+            button_text = "🎸+🎸**我们联合！**"
             status_text = "正在进行双轨渲染..."
             init_text = "初始化吉他+贝斯混合引擎..."
             parse_text = "自动分配音域并混合渲染..."
-        else:
+        elif instrument == "drums":
+            button_text = "🥁**DrumMaster，启动！**"
+            status_text = "正在进行架子鼓模拟..."
+            init_text = "初始化架子鼓引擎..."
+            parse_text = "解析 MIDI 事件并生成打击乐..."
+        elif instrument == "full_band":
+            button_text = "🎤+🎸+🎸+🎸🥁**组一被子乐队！**"
+            status_text = "正在进行全轨渲染..."
+            init_text = "初始化吉他+贝斯+架子鼓混合引擎..."
+            parse_text = "自动分配音域并混合渲染..."
+        else:  # piano
             button_text = "🎹**PianoMaster，启动！**"
             status_text = "正在进行钢琴物理建模..."
             init_text = "初始化 88 键三角钢琴（多弦耦合）..."
