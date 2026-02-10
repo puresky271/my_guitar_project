@@ -24,16 +24,25 @@ def bass_string_model(n_samples, delay_samples, velocity, brightness):
     burst_len = int(delay_samples * 1.2)  # 贝斯激励更长
     if burst_len > n_samples:
         burst_len = n_samples
+    
+    # [BUGFIX] 防止 burst_len 过小时除以 0
+    rise_len = burst_len // 4
+    if rise_len < 1:
+        rise_len = 1
 
     # 使用更厚重的激励波形
     for i in range(burst_len):
         # 梯形波（而非三角波），更"厚实"
-        if i < burst_len // 4:
-            shape = i / (burst_len // 4)
-        elif i < 3 * burst_len // 4:
+        if i < rise_len:
+            shape = i / rise_len
+        elif i < 3 * rise_len:
             shape = 1.0
         else:
-            shape = 1.0 - (i - 3 * burst_len // 4) / (burst_len // 4)
+            # 这里的逻辑也需要适配 rise_len 以防越界，但在 Numba 中通常 ok
+            # 简单修改为基于 rise_len 的下降
+            fall_phase = i - 3 * rise_len
+            shape = 1.0 - (fall_phase / rise_len)
+            if shape < 0: shape = 0.0
 
         # 少量噪声
         noise = np.random.uniform(-0.15, 0.15)
@@ -164,6 +173,9 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
     - reflection: 房间混响
     - coupling: 未使用（贝斯单弦）
     """
+    # 是否启用贝斯自动改编（只影响 Bass 独奏）
+    AUTO_BASS_ARRANGE = True
+
     try:
         mid = mido.MidiFile(file=midi_stream)
     except Exception as e:
@@ -199,6 +211,7 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
     # 自动增益控制
     max_polyphony = 1
     time_grid = np.zeros(total_samples, dtype=np.int16)
+    # [BUGFIX] events 这里是 4 个元素，修正解包变量
     for start, end, note, vel in events:
         if start < total_samples and end > start:
             end = min(end, total_samples)
@@ -209,7 +222,22 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
     print(f"   最大复音数: {max_polyphony}, 自动增益: {agc_factor:.3f}")
 
     # 音符渲染
+    # [BUGFIX] 去掉了 ped，events 只有 4 个元素
     for start, end, note, velocity in events:
+
+        # ================== Bass 自动改编核心 ==================
+        if AUTO_BASS_ARRANGE:
+            # 压到贝斯音域 E1 ~ G3
+            while note > 55:
+                note -= 12
+            while note < 28:
+                note += 12
+
+            # 贝斯不演和弦，只取低音（已经是最低音域了）
+            # 并且延长时值，让旋律连贯
+            end += int(0.15 * SR)
+        # ======================================================
+
         if start >= total_samples:
             continue
 
@@ -254,7 +282,10 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
         # 叠加
         end_idx = min(start + len(wave_snippet), total_samples)
-        mix_buffer[start:end_idx] += wave_snippet[:end_idx - start]
+        # 确保切片长度一致
+        snippet_len = end_idx - start
+        if snippet_len > 0:
+            mix_buffer[start:end_idx] += wave_snippet[:snippet_len]
 
     # 后处理链
     print("   应用后处理...")
@@ -296,4 +327,5 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
         return None, None
 
     print("✅ 贝斯渲染完成")
+
     return buf.getvalue(), mix_buffer
