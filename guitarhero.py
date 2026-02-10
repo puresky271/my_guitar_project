@@ -509,9 +509,16 @@ with st.sidebar:
 
     # 乐器状态管理
     instrument = st.session_state.get('instrument', 'guitar')
+    st.session_state.setdefault('instrument', instrument)
+    def clamp(key, minv, maxv, default):
+        v = st.session_state.get(key, default)
+        if v < minv or v > maxv:
+            st.session_state[key] = default
+
 
     if instrument == "guitar":
         st.subheader("🎸 吉他物理参数")
+        clamp("coupling", 0.0, 0.01, 0.005)
         pluck_position = st.slider(
             "拨弦位置（近琴桥 ⇄ 近指板）", 0.08, 0.40, step=0.01, key="pluck_position",
         )
@@ -522,6 +529,8 @@ with st.sidebar:
 
     elif instrument == "piano":
         st.subheader("🎹 钢琴物理参数")
+        clamp("coupling", 0.0, 10.0, 0.0)
+
 
         brightness = st.slider("音色明亮度", 0.3, 0.9, value=0.65, step=0.05, key="brightness")
         pluck_position = st.slider("琴槌硬度", 0.5, 2.0, value=1.0, step=0.1, key="pluck_position")
@@ -558,6 +567,8 @@ with st.sidebar:
     elif instrument == "guitar_bass":
         st.subheader("🎸+🎸 混合模式")
         st.info("如果你觉得自己听不到贝斯声，这是正常的😂")
+        clamp("coupling", 45, 60, 52)
+
 
         brightness = st.slider("整体明亮度", 0.3, 0.8, value=0.5, step=0.05, key="brightness")
         pluck_position = st.slider("吉他/贝斯音量比", 0.3, 3.0, value=1.0, step=0.1, key="pluck_position")
@@ -794,3 +805,4 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
