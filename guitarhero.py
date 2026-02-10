@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS 样式定义 (核心) ---
+# --- 2. CSS 样式定义  ---
 st.markdown("""
     <style>
     /* =================================
@@ -98,7 +98,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-# --- 3. 背景图加载逻辑 (智能版) ---
+# --- 3. 背景图加载逻辑  ---
 def set_background():
     """
     智能背景加载器：
@@ -1065,3 +1065,4 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
