@@ -278,6 +278,22 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
     try:
         if instrument == "guitar":
             from instruments import guitar as engine_module
+            midi_stream = io.BytesIO(file_bytes)
+
+            result = engine_module.midi_to_audio(
+                midi_stream,
+                brightness,
+                pluck_pos,
+                body_mix,
+                reflection,
+                coupling
+            )
+
+            if result is None or not isinstance(result, tuple) or result[0] is None:
+                return None
+
+            return result[0]
+
         elif instrument == "bass":
             from instruments import bass as engine_module
             midi_stream = io.BytesIO(file_bytes)
@@ -1032,4 +1048,3 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
