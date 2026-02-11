@@ -11,178 +11,119 @@ SR = 48000
 @jit(nopython=True, fastmath=True)
 def bass_string_model(n_samples, delay_samples, velocity, brightness):
     """
-    贝斯弦物理模型
-
-    贝斯特点：
-    1. 弦更粗更重 → 衰减极慢
-    2. 张力更低 → 更多非线性
-    3. 低频丰富 → 需要特殊处理
+    改进的贝斯弦物理模型 v2.2
+    修复了低频能量无限堆积导致的背景轰鸣 (DC Offset / Rumble)
     """
     output = np.zeros(n_samples, dtype=np.float32)
 
-    # === 1. 激励信号（改进的贝斯拨弦） ===
-    burst_len = int(delay_samples * 1.5)  # 更长的激励
-    if burst_len > n_samples:
-        burst_len = n_samples
+    # === 1. 改进的拨弦激励 ===
+    burst_len = int(delay_samples * 0.8)
+    if burst_len > n_samples: burst_len = n_samples
+    if burst_len < 1: burst_len = 1
+    rise_len = max(1, burst_len // 6)
 
-    rise_len = burst_len // 4
-    if rise_len < 1:
-        rise_len = 1
-
-    # 使用更真实的拨弦波形（梯形 + 谐波丰富化）
     for i in range(burst_len):
-        # 基础梯形波
         if i < rise_len:
-            shape = (i / rise_len) ** 0.8  # 快速上升
-        elif i < 3 * rise_len:
+            shape = (i / rise_len) ** 0.6
+        elif i < burst_len - rise_len:
             shape = 1.0
         else:
-            fall_phase = i - 3 * rise_len
-            shape = 1.0 - (fall_phase / rise_len) ** 1.2  # 慢速下降
-            if shape < 0:
-                shape = 0.0
+            fall_idx = i - (burst_len - rise_len)
+            shape = 1.0 - (fall_idx / rise_len) ** 1.5
+            if shape < 0: shape = 0.0
 
-        # 添加二次谐波（贝斯特有的"厚实感"）
-        harmonic_phase = (i / delay_samples) * 2.0 * np.pi
-        harmonic = np.sin(harmonic_phase * 2.0) * 0.15  # 二倍频
-        harmonic += np.sin(harmonic_phase * 3.0) * 0.08  # 三倍频
+        phase = (i / delay_samples) * 2.0 * np.pi
+        harmonic = np.sin(phase * 2.0) * 0.20 + np.sin(phase * 3.0) * 0.10
+        noise = np.random.uniform(-0.15, 0.15)
 
-        # 拨弦噪声（金属弦的"咔"声）
-        noise = np.random.uniform(-0.12, 0.12)
-
-        # 混合
         if i > 0:
-            smoothed = (shape + harmonic) * 0.75 + output[i - 1] * 0.25
+            smoothed = (shape + harmonic) * 0.7 + output[i - 1] * 0.3
         else:
             smoothed = shape + harmonic
 
-        output[i] = (smoothed * 0.82 + noise * 0.18) * velocity
+        output[i] = (smoothed * 0.75 + noise * 0.25) * velocity
 
-    # === 2. 物理反馈循环（贝斯衰减极慢） ===
+    # === 2. 物理反馈循环 ===
     freq = SR / delay_samples
 
-    # 贝斯的衰减比吉他慢得多
-    base_decay = 0.9996  # 吉他是 0.9992
+    if freq < 50:
+        base_decay = 0.992
+    elif freq < 100:
+        base_decay = 0.996
+    else:
+        base_decay = 0.997
 
-    # 低频额外保护（贝斯最重要的是低频持续）
-    if freq < 100:
-        base_decay = 0.9998
-    elif freq < 200:
-        base_decay = 0.9997
+    alpha = 0.35 + brightness * 0.25
 
-    # 贝斯的低通滤波更激进（天然高频少）
-    alpha = 0.4 + brightness * 0.25  # 比吉他更低
-
-    # 主循环（加入贝斯特有的"松弛"非线性）
     for i in range(delay_samples, n_samples):
         delayed_1 = output[i - delay_samples]
         delayed_2 = output[i - delay_samples - 1] if i > delay_samples else 0.0
 
-        # 低通滤波
         filtered = delayed_1 * alpha + delayed_2 * (1.0 - alpha)
 
-        # 贝斯弦的"松弛"非线性：低张力导致的频率下探
         amplitude = abs(filtered)
-        if amplitude > 0.2:
-            # 大振幅时频率略微下降（与吉他相反）
-            tension_sag = 1.0 - (amplitude - 0.2) * 0.015
+        if amplitude > 0.15:
+            tension_sag = 1.0 - (amplitude - 0.15) * 0.008
             filtered *= tension_sag
 
+        if amplitude > 0.6:
+            filtered = np.tanh(filtered)
+
         output[i] = filtered * base_decay
+
+        if output[i] > 4.0: output[i] = 4.0
+        if output[i] < -4.0: output[i] = -4.0
 
     return output
 
 
-def bass_body_filter(samples, mix):
-    """
-    贝斯箱体共鸣（与吉他不同）
-
-    贝斯特点：
-    - 主共振在 80-120Hz（更低）
-    - Q 值更高（更窄的峰）
-    """
-    if mix <= 0:
-        return samples
-
-    # 主共振峰在 100Hz
-    b_body, a_body = signal.iirpeak(100, 8, SR)
-    body_resonance = signal.lfilter(b_body, a_body, samples)
-
-    # 次共振峰在 180Hz
-    b_body2, a_body2 = signal.iirpeak(180, 12, SR)
-    body_resonance2 = signal.lfilter(b_body2, a_body2, samples)
-
-    # 混合
-    result = samples * (1 - mix) + (body_resonance * 0.6 + body_resonance2 * 0.4) * mix
-
-    return result
+def bass_body_filter(buffer, body_mix):
+    if body_mix <= 0.01:
+        return buffer
+    b, a = signal.iirpeak(100, 2.5, SR)
+    body_resonance = signal.lfilter(b, a, buffer)
+    return buffer * (1.0 - body_mix * 0.6) + body_resonance * body_mix
 
 
-def bass_eq_mastering(audio_buffer):
-    """
-    贝斯专用 EQ
+def bass_eq_mastering(audio_buffer, brightness=0.5):
+    # DC Blocker
+    sos_dc = signal.butter(2, 25, 'hp', fs=SR, output='sos')
+    audio_buffer = signal.sosfilt(sos_dc, audio_buffer)
 
-    目标：
-    1. 保留 40-150Hz 的核心低频
-    2. 削减 200-500Hz 的"泥泞"
-    3. 提升 2-4kHz 的"颗粒感"（拨弦声）
-    """
-    # 1. 高通 30Hz（只切最低的隆隆声）
-    sos_hp = signal.butter(4, 30, 'hp', fs=SR, output='sos')
-    audio_buffer = signal.sosfilt(sos_hp, audio_buffer)
+    # Sub Boost
+    b_sub, a_sub = signal.iirpeak(70, 3, SR)
+    sub_boost = signal.lfilter(b_sub, a_sub, audio_buffer) * 0.4
+    audio_buffer = audio_buffer + sub_boost
 
-    # 2. 低频核心提升（80Hz + 50Hz 双峰）
-    b_low, a_low = signal.iirpeak(80, 6, SR)
-    low_boost = signal.lfilter(b_low, a_low, audio_buffer) * 0.25
-
-    b_sub, a_sub = signal.iirpeak(50, 4, SR)
-    sub_boost = signal.lfilter(b_sub, a_sub, audio_buffer) * 0.15
-
-    audio_buffer = audio_buffer + low_boost + sub_boost
-
-    # 3. 中低频削减（250-400Hz，消除"泥泞"）
-    b_mud, a_mud = signal.iirnotch(320, 10, SR)
+    # De-mud
+    b_mud, a_mud = signal.iirnotch(280, 5, SR)
     audio_buffer = signal.lfilter(b_mud, a_mud, audio_buffer)
 
-    # 4. 高中频提升（2.5kHz，拨弦"颗粒感"）
-    b_attack, a_attack = signal.iirpeak(2500, 15, SR)
-    attack_boost = signal.lfilter(b_attack, a_attack, audio_buffer) * 0.25
-    audio_buffer = audio_buffer + attack_boost
+    # Attack & Presence
+    boost_factor = brightness * 0.6
+    b_att, a_att = signal.iirpeak(2000, 8, SR)
+    attack = signal.lfilter(b_att, a_att, audio_buffer) * boost_factor
+    audio_buffer = audio_buffer + attack
 
-    # 5. 高频适度滚降（贝斯不需要太多高频）
-    sos_lp = signal.butter(2, 8000, 'lp', fs=SR, output='sos')
+    # LP
+    sos_lp = signal.butter(2, 5000, 'lp', fs=SR, output='sos')
     audio_buffer = signal.sosfilt(sos_lp, audio_buffer)
 
     return audio_buffer
 
 
-def adaptive_limiter(buffer, target_peak=0.95):
-    """贝斯专用限制器（低频友好）"""
-    # 对低频更温和的限制
-    for i in range(len(buffer)):
-        if abs(buffer[i]) > target_peak:
-            # 软削波
-            sign = 1.0 if buffer[i] > 0 else -1.0
-            excess = abs(buffer[i]) - target_peak
-            buffer[i] = sign * (target_peak + excess / (1.0 + excess * 2))
-
+def adaptive_limiter(buffer, target_peak=0.96):
+    peak = np.max(np.abs(buffer))
+    if peak > target_peak:
+        buffer = buffer * (target_peak / peak)
     return buffer
 
 
-def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection, coupling):
+def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection, coupling, solo_mode=False):
     """
-    贝斯 MIDI 渲染
-
-    参数映射：
-    - brightness: 音色明亮度（控制高频）
-    - pluck_position: 拨弦力度曲线
-    - body_mix: 箱体共鸣强度
-    - reflection: 房间混响
-    - coupling: 未使用（贝斯单弦）
+    solo_mode=True: 独奏模式，保留所有音符，不做节奏删减
+    solo_mode=False: 伴奏模式，启用智能编曲，删减密集音符
     """
-    # 是否启用贝斯自动改编（只影响 Bass 独奏）
-    AUTO_BASS_ARRANGE = True
-
     try:
         mid = mido.MidiFile(file=midi_stream)
     except Exception as e:
@@ -191,13 +132,11 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
 
     total_len = sum(msg.time for msg in mid) + 4.0
     total_samples = int(total_len * SR)
-    if total_samples > SR * 300:
-        total_samples = SR * 300
+    if total_samples > SR * 600: total_samples = SR * 600
 
     mix_buffer = np.zeros(total_samples, dtype=np.float32)
 
-    # MIDI 事件解析
-    events = []
+    raw_events = []
     cursor = 0
     active_notes = {}
 
@@ -208,131 +147,128 @@ def midi_to_audio(midi_stream, brightness, pluck_position, body_mix, reflection,
         elif (msg.type == 'note_off') or (msg.type == 'note_on' and msg.velocity == 0):
             if msg.note in active_notes:
                 start, vel = active_notes.pop(msg.note)
-                events.append((start, cursor, msg.note, vel))
+                raw_events.append({'start': start, 'end': cursor, 'note': msg.note, 'vel': vel})
 
-    for note, (start, vel) in active_notes.items():
-        events.append((start, total_samples - SR, note, vel))
+    raw_events.sort(key=lambda x: x['start'])
 
-    print(f"🎸 贝斯引擎：处理 {len(events)} 个音符事件")
+    # === 核心分歧：独奏 vs 伴奏 ===
+    filtered_events = []
 
-    # 自动增益控制
-    max_polyphony = 1
-    time_grid = np.zeros(total_samples, dtype=np.int16)
-    # [BUGFIX] events 这里是 4 个元素，修正解包变量
-    for start, end, note, vel in events:
-        if start < total_samples and end > start:
-            end = min(end, total_samples)
-            time_grid[start:end] += 1
-            max_polyphony = max(max_polyphony, np.max(time_grid[start:end]))
-
-    agc_factor = 1.0 / np.sqrt(max_polyphony)
-    print(f"   最大复音数: {max_polyphony}, 自动增益: {agc_factor:.3f}")
-
-    # 音符渲染
-    # [BUGFIX] 去掉了 ped，events 只有 4 个元素
-    for start, end, note, velocity in events:
-
-        # ================== Bass 自动改编核心 ==================
-        if AUTO_BASS_ARRANGE:
-            # 压到贝斯音域 E1 ~ G3
-            while note > 55:
+    if solo_mode:
+        print("🎸 贝斯独奏模式：全音符保留")
+        # 独奏模式：简单处理，仅做音域映射
+        for evt in raw_events:
+            note = evt['note']
+            # 即使是独奏，太高的音用贝斯弹也不好听，适当降八度
+            while note > 60:  # Middle C
                 note -= 12
-            while note < 28:
+            while note < 28:  # E1
                 note += 12
 
-            # 贝斯不演和弦，只取低音（已经是最低音域了）
-            # 并且延长时值，让旋律连贯
-            end += int(0.15 * SR)
-        # ======================================================
+            filtered_events.append({
+                'start': evt['start'],
+                'end': evt['end'],
+                'note': note,
+                'vel': evt['vel']
+            })
+    else:
+        print("🎸 贝斯伴奏模式：启用智能编曲")
+        # 伴奏模式：使用 Smart Arranger (保留原有逻辑)
+        last_start_time = -999999
+        min_interval = int(SR * 0.120)
+        time_window = int(SR * 0.04)
 
-        if start >= total_samples:
-            continue
+        i = 0
+        while i < len(raw_events):
+            current_cluster = [raw_events[i]]
+            j = i + 1
+            while j < len(raw_events) and (raw_events[j]['start'] - raw_events[i]['start'] < time_window):
+                current_cluster.append(raw_events[j])
+                j += 1
 
-        freq = 440.0 * (2.0 ** ((note - 69) / 12.0))
+            best_note_event = min(current_cluster, key=lambda x: x['note'])
 
-        # 贝斯有效音域：E1 (41.2Hz) 到 C4 (261Hz)
-        if freq > 300 or freq < 35:
-            continue
+            time_diff = best_note_event['start'] - last_start_time
+            is_strong_beat = best_note_event['vel'] > 90
 
-        delay_samples = int(SR / freq)
-        if delay_samples < 2:
-            continue
+            should_play = False
+            if time_diff > min_interval:
+                should_play = True
+            elif is_strong_beat and time_diff > min_interval * 0.5:
+                should_play = True
 
-        # 力度曲线（使用 pluck_position 参数）
-        vel_curve = (velocity / 127.0) ** pluck_position
+            if best_note_event['note'] > 67: should_play = False
 
-        # 贝斯不需要频率平衡（低频就是优势）
-        freq_gain = 1.0
+            if should_play:
+                target_note = best_note_event['note']
+                while target_note > 48: target_note -= 12
+                while target_note < 28: target_note += 12
 
-        final_velocity = vel_curve * freq_gain * agc_factor * 1.2
+                bass_vel = int(best_note_event['vel'] * 0.9 + 10)
+                if bass_vel > 127: bass_vel = 127
 
-        # 生成音符（贝斯余音更长）
-        duration = (end - start) + int(SR * 0.8)
+                filtered_events.append({
+                    'start': best_note_event['start'],
+                    'end': best_note_event['end'],
+                    'note': target_note,
+                    'vel': bass_vel
+                })
+                last_start_time = best_note_event['start']
+            i = j
+
+    # === 音频渲染 ===
+    for evt in filtered_events:
+        start, end, note, velocity = evt['start'], evt['end'], evt['note'], evt['vel']
+
+        midi_duration = end - start
+        min_len = int(SR * 0.15)
+        duration = max(midi_duration, min_len)
         duration = min(duration, total_samples - start)
 
-        wave_snippet = bass_string_model(
-            duration,
-            delay_samples,
-            final_velocity,
-            brightness
-        )
+        freq = 440.0 * (2.0 ** ((note - 69) / 12.0))
+        if freq < 20: continue
 
-        # 释放包络
-        release_time = int(SR * 0.2)
-        note_off = end - start
+        delay_samples = int(SR / freq)
+        if delay_samples < 2: continue
 
-        if note_off > 0 and note_off < len(wave_snippet):
-            if note_off + release_time < len(wave_snippet):
-                fade = np.linspace(1.0, 0.0, release_time)
-                wave_snippet[note_off:note_off + release_time] *= fade
-                wave_snippet[note_off + release_time:] = 0.0
+        # 动态控制
+        # pluck_position 在这里做动态压缩
+        # solo 模式下 pluck_position 可能还是默认的，确保它不是0
+        p_pos = pluck_position if pluck_position > 0.1 else 1.0
+        vel_curve = (velocity / 127.0) ** (1.0 / p_pos)
+        final_velocity = vel_curve * 0.7
 
-        # 叠加
+        wave_snippet = bass_string_model(duration, delay_samples, final_velocity, brightness)
+
+        # 简单淡入淡出
         end_idx = min(start + len(wave_snippet), total_samples)
-        # 确保切片长度一致
         snippet_len = end_idx - start
+        fade_len = min(200, snippet_len // 4)
+        if fade_len > 0:
+            wave_snippet[:fade_len] *= np.linspace(0, 1, fade_len)
+            wave_snippet[snippet_len - fade_len:snippet_len] *= np.linspace(1, 0, fade_len)
+
         if snippet_len > 0:
             mix_buffer[start:end_idx] += wave_snippet[:snippet_len]
 
-    # 后处理链
-    print("   应用后处理...")
-
-    # 1. 贝斯箱体共鸣
     mix_buffer = bass_body_filter(mix_buffer, body_mix)
+    mix_buffer = bass_eq_mastering(mix_buffer, brightness)
 
-    # 2. 贝斯 EQ
-    mix_buffer = bass_eq_mastering(mix_buffer)
-
-    # 3. 房间混响
     if reflection > 0.01:
-        delay_samples = int(SR * 0.06)
+        delay_samples = int(SR * 0.03)
         if len(mix_buffer) > delay_samples:
-            reverb = np.zeros_like(mix_buffer)
-            reverb[delay_samples:] += mix_buffer[:-delay_samples] * reflection * 0.4
-            mix_buffer = mix_buffer * 0.85 + reverb * 0.15
+            reverb_wet = np.zeros_like(mix_buffer)
+            reverb_wet[delay_samples:] = mix_buffer[:-delay_samples] * reflection * 0.4
+            mix_buffer += reverb_wet
 
-    # 4. 自适应限制器
     mix_buffer = adaptive_limiter(mix_buffer, target_peak=0.95)
 
-    # 5. 最终归一化
-    peak = np.max(np.abs(mix_buffer))
-    if peak > 0.01:
-        mix_buffer = mix_buffer / peak * 0.96
-
-    # 转换为 WAV
     samples_int = (mix_buffer * 32767).astype(np.int16)
-
     buf = io.BytesIO()
-    try:
-        with wave.open(buf, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(SR)
-            wf.writeframes(samples_int.tobytes())
-    except Exception as e:
-        print(f"WAV 写入失败: {e}")
-        return None, None
-
-    print("✅ 贝斯渲染完成")
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SR)
+        wf.writeframes(samples_int.tobytes())
 
     return buf.getvalue(), mix_buffer
