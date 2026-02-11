@@ -643,155 +643,116 @@ def render_sync_player(audio_bytes):
     components.html(html_code, height=125)
 
 
-# --- 7. 侧边栏 ---
+# --- 7. 侧边栏 (修复 Bug：状态强制同步) ---
 with st.sidebar:
     st.title("音色实验室")
-    st.caption("在调参后请手动重新生成，虽然我也不建议你改就是了")
-    st.caption("因为不同的MIDI文件所使用的演奏乐器不同，如果你觉得某一种模式很怪，就换成另一种")
+    st.caption("在调参后请手动重新生成")
     st.markdown("---")
 
     instrument = st.session_state.get('instrument', 'guitar')
-    st.session_state.setdefault('instrument', instrument)
 
 
-    def clamp(key, minv, maxv, recommended_default):
-        v = st.session_state.get(key, recommended_default)
-        if v < minv or v > maxv:
-            st.session_state[key] = recommended_default
+    # 核心修复：更强大的 Clamp 函数
+    # 在渲染 Slider 之前，强制将 session_state 里的脏数据清洗干净
+    def clamp(key, minv, maxv, default_val):
+        current = st.session_state.get(key, default_val)
+        # 如果当前值不在范围内，强制重置
+        if current < minv or current > maxv:
+            st.session_state[key] = default_val
+            return default_val
+        return current
 
+
+    # 根据乐器不同，设定不同的参数范围和默认值
+    # 注意：所有 Slider 都使用相同的 key (如 "brightness")
+    # Streamlit 切换时会报错，除非我们保证 value=clamped_value
 
     if instrument == "guitar":
-        st.subheader("🎸 吉他物理参数")
-        clamp("pluck_position", 0.08, 0.40, 0.25)
-        clamp("body_mix", 0.0, 0.6, 0.15)
-        clamp("reflection", 0.0, 0.3, 0.15)
-        clamp("brightness", 0.2, 0.8, 0.60)
-        clamp("coupling", 0.0, 0.01, 0.005)
+        st.subheader("🎸 吉他参数")
+        # 1. 先清洗数据
+        val_pluck = clamp("pluck_position", 0.08, 0.40, 0.25)
+        val_body = clamp("body_mix", 0.0, 0.6, 0.15)
+        val_refl = clamp("reflection", 0.0, 0.3, 0.15)
+        val_bright = clamp("brightness", 0.2, 0.8, 0.60)
+        val_coup = clamp("coupling", 0.0, 0.01, 0.005)
 
-        pluck_position = st.slider("拨弦位置（近琴桥 ⇄ 近指板）", 0.08, 0.40, value=0.25, step=0.01, key="pluck_position")
-        body_mix = st.slider("琴箱共鸣强度", 0.0, 0.6, value=0.15, step=0.02, key="body_mix")
-        reflection = st.slider("空间反射感", 0.0, 0.3, value=0.15, step=0.01, key="reflection")
-        brightness = st.slider("弦的亮度", 0.2, 0.8, value=0.60, step=0.02, key="brightness")
-        coupling = st.slider("弦间共振（串扰）", 0.0, 0.01, value=0.005, step=0.0005, key="coupling")
+        # 2. 再渲染 Slider (value 使用清洗后的值)
+        st.slider("拨弦位置", 0.08, 0.40, value=val_pluck, step=0.01, key="pluck_position")
+        st.slider("琴箱共鸣", 0.0, 0.6, value=val_body, step=0.02, key="body_mix")
+        st.slider("空间反射", 0.0, 0.3, value=val_refl, step=0.01, key="reflection")
+        st.slider("亮度", 0.2, 0.8, value=val_bright, step=0.02, key="brightness")
+        st.slider("弦间共振", 0.0, 0.01, value=val_coup, step=0.0005, key="coupling")
 
     elif instrument == "piano":
-        st.subheader("🎹 钢琴物理参数")
-        clamp("brightness", 0.3, 0.9, 0.65)
-        clamp("pluck_position", 0.5, 2.0, 1.0)
-        clamp("body_mix", 0.0, 0.5, 0.3)
-        clamp("reflection", 0.0, 0.4, 0.15)
-        clamp("coupling", 1.5, 3.5, 2.5)
+        st.subheader("🎹 钢琴参数")
+        val_bright = clamp("brightness", 0.3, 0.9, 0.65)
+        val_pluck = clamp("pluck_position", 0.5, 2.0, 1.0)
+        val_body = clamp("body_mix", 0.0, 0.5, 0.3)
+        val_refl = clamp("reflection", 0.0, 0.4, 0.15)
+        val_coup = clamp("coupling", 1.5, 3.5, 2.5)
 
-        brightness = st.slider("音色明亮度", 0.3, 0.9, value=0.65, step=0.05, key="brightness")
-        pluck_position = st.slider("琴槌硬度", 0.5, 2.0, value=1.0, step=0.1, key="pluck_position")
-        body_mix = st.slider("音板共鸣强度", 0.0, 0.5, value=0.3, step=0.05, key="body_mix")
-        reflection = st.slider("音乐厅混响", 0.0, 0.4, value=0.15, step=0.02, key="reflection")
-        coupling = st.slider("力度响应曲线", 1.5, 3.5, value=2.5, step=0.1, key="coupling")
-
-        st.markdown("---")
-        st.markdown("""
-        **钢琴物理特性：**
-        - 低音区：单弦
-        - 中音区：双弦耦合
-        - 高音区：三弦合唱
-        - 自动延音踏板识别
-        """)
+        st.slider("明亮度", 0.3, 0.9, value=val_bright, step=0.05, key="brightness")
+        st.slider("琴槌硬度", 0.5, 2.0, value=val_pluck, step=0.1, key="pluck_position")
+        st.slider("音板共鸣", 0.0, 0.5, value=val_body, step=0.05, key="body_mix")
+        st.slider("混响", 0.0, 0.4, value=val_refl, step=0.02, key="reflection")
+        st.slider("力度响应", 1.5, 3.5, value=val_coup, step=0.1, key="coupling")
 
     elif instrument == "bass":
-        st.subheader("🎸 贝斯物理参数")
-        clamp("brightness", 0.2, 0.7, 0.65)
-        clamp("pluck_position", 1.2, 2.5, 1.8)
-        clamp("body_mix", 0.0, 0.6, 0.3)
-        clamp("reflection", 0.0, 0.3, 0.1)
-        clamp("coupling", 0.0, 1.0, 0.0)
+        st.subheader("🎸 贝斯参数")
+        val_bright = clamp("brightness", 0.2, 0.7, 0.65)
+        val_pluck = clamp("pluck_position", 1.2, 2.5, 1.8)
+        val_body = clamp("body_mix", 0.0, 0.6, 0.3)
+        val_refl = clamp("reflection", 0.0, 0.3, 0.1)
+        val_coup = clamp("coupling", 0.0, 1.0, 0.0)
 
-        brightness = st.slider("音色明亮度", 0.2, 0.7, value=0.65, step=0.05, key="brightness")
-        pluck_position = st.slider("拨弦力度曲线", 1.2, 2.5, value=1.8, step=0.1, key="pluck_position")
-        body_mix = st.slider("箱体共鸣强度", 0.0, 0.6, value=0.3, step=0.05, key="body_mix")
-        reflection = st.slider("房间混响", 0.0, 0.3, value=0.1, step=0.02, key="reflection")
-
-        st.markdown("---")
-        st.markdown("""
-        **贝斯特性：**
-        - 有效音域：E1-C4
-        - 低频衰减极慢
-        - 自动低频增强
-        - 拨弦颗粒感
-        """)
+        st.slider("明亮度", 0.2, 0.7, value=val_bright, step=0.05, key="brightness")
+        st.slider("拨弦力度", 1.2, 2.5, value=val_pluck, step=0.1, key="pluck_position")
+        st.slider("箱体共鸣", 0.0, 0.6, value=val_body, step=0.05, key="body_mix")
+        st.slider("房间混响", 0.0, 0.3, value=val_refl, step=0.02, key="reflection")
+        # 贝斯不需要 coupling 滑块，但必须保证 key 存在且合法
+        st.session_state.coupling = 0.0
 
     elif instrument == "guitar_bass":
-        st.subheader("🎸+🎸 混合模式")
-        st.info("如果你觉得自己听不到贝斯声，这是正常的😂")
+        st.subheader("🎸+🎸 混合参数")
+        val_bright = clamp("brightness", 0.3, 0.8, 0.5)
+        val_pluck = clamp("pluck_position", 0.3, 3.0, 1.0)
+        val_body = clamp("body_mix", 0.0, 0.5, 0.28)
+        val_refl = clamp("reflection", 0.0, 0.3, 0.12)
+        val_coup = clamp("coupling", 45, 60, 52)
 
-        clamp("brightness", 0.3, 0.8, 0.5)
-        clamp("pluck_position", 0.3, 3.0, 1.0)
-        clamp("body_mix", 0.0, 0.5, 0.28)
-        clamp("reflection", 0.0, 0.3, 0.12)
-        clamp("coupling", 45, 60, 52)
-
-        brightness = st.slider("整体明亮度", 0.3, 0.8, value=0.5, step=0.05, key="brightness")
-        pluck_position = st.slider("吉他/贝斯音量比", 0.3, 3.0, value=1.7, step=0.1, key="pluck_position")
-        body_mix = st.slider("箱体共鸣", 0.0, 0.5, value=0.28, step=0.02, key="body_mix")
-        reflection = st.slider("空间反射感", 0.0, 0.3, value=0.12, step=0.01, key="reflection")
-        coupling = st.slider("分频点（MIDI音符）", 45, 60, value=52, step=1, key="coupling")
-
-        st.markdown("---")
-        st.markdown("""
-        **混合模式特性：**
-        - 自动音域分配
-        - 贝斯低频饱满
-        - 吉他中高频明亮
-        """)
-    # --- 在侧边栏部分添加 drums 和 full_band 的参数控制 ---
-    # 修改侧边栏代码，在钢琴部分之后添加：
+        st.slider("整体亮度", 0.3, 0.8, value=val_bright, step=0.05, key="brightness")
+        st.slider("音量平衡(左吉右贝)", 0.3, 3.0, value=val_pluck, step=0.1, key="pluck_position")
+        st.slider("箱体共鸣", 0.0, 0.5, value=val_body, step=0.02, key="body_mix")
+        st.slider("空间感", 0.0, 0.3, value=val_refl, step=0.01, key="reflection")
+        st.slider("分频点(MIDI音符)", 45, 60, value=val_coup, step=1, key="coupling")
 
     elif instrument == "drums":
-        st.subheader("🥁 鼓组物理参数")
-        clamp("brightness", 0.3, 0.9, 0.7)
-        clamp("pluck_position", 0.5, 2.0, 1.2)
-        clamp("body_mix", 0.0, 0.8, 0.4)
-        clamp("reflection", 0.0, 0.5, 0.2)
-        clamp("coupling", 1.0, 3.0, 2.0)
+        st.subheader("🥁 鼓组参数")
+        val_bright = clamp("brightness", 0.3, 0.9, 0.7)
+        val_pluck = clamp("pluck_position", 0.5, 2.0, 1.2)
+        val_body = clamp("body_mix", 0.0, 0.8, 0.4)
+        val_refl = clamp("reflection", 0.0, 0.5, 0.2)
+        val_coup = clamp("coupling", 1.0, 3.0, 2.0)
 
-        brightness = st.slider("鼓皮硬度", 0.3, 0.9, value=0.7, step=0.05, key="brightness")
-        pluck_position = st.slider("打击力度响应", 0.5, 2.0, value=1.2, step=0.1, key="pluck_position")
-        body_mix = st.slider("腔体共鸣", 0.0, 0.8, value=0.4, step=0.05, key="body_mix")
-        reflection = st.slider("房间混响", 0.0, 0.5, value=0.2, step=0.02, key="reflection")
-        coupling = st.slider("鼓组压缩度", 1.0, 3.0, value=2.0, step=0.1, key="coupling")
-
-        st.markdown("---")
-        st.markdown("""
-        **鼓组特性：**
-        - 支持通用 MIDI 鼓组映射 (GM)
-        - 底鼓、军鼓、踩镲、通鼓、镲片
-        - 动态打击力度响应
-        - 房间声学模拟
-        """)
+        st.slider("鼓皮硬度", 0.3, 0.9, value=val_bright, step=0.05, key="brightness")
+        st.slider("打击响应", 0.5, 2.0, value=val_pluck, step=0.1, key="pluck_position")
+        st.slider("腔体共鸣", 0.0, 0.8, value=val_body, step=0.05, key="body_mix")
+        st.slider("混响", 0.0, 0.5, value=val_refl, step=0.02, key="reflection")
+        st.slider("压缩感", 1.0, 3.0, value=val_coup, step=0.1, key="coupling")
 
     elif instrument == "full_band":
-        st.subheader("🎤+🎸+🥁 乐队合奏模式")
-        st.info("这是完整乐队渲染模式，自动分配各声部")
+        st.subheader("🎸🥁 乐队参数")
+        val_bright = clamp("brightness", 0.4, 0.9, 0.7)
+        val_pluck = clamp("pluck_position", 0.8, 2.5, 1.5)
+        val_body = clamp("body_mix", 0.0, 0.6, 0.35)
+        val_refl = clamp("reflection", 0.0, 0.4, 0.18)
+        val_coup = clamp("coupling", 40, 65, 52)
 
-        clamp("brightness", 0.4, 0.9, 0.7)
-        clamp("pluck_position", 0.8, 2.5, 1.5)
-        clamp("body_mix", 0.0, 0.6, 0.35)
-        clamp("reflection", 0.0, 0.4, 0.18)
-        clamp("coupling", 40, 65, 52)
-
-        brightness = st.slider("整体明亮度", 0.4, 0.9, value=0.7, step=0.05, key="brightness")
-        pluck_position = st.slider("动态平衡", 0.8, 2.5, value=1.5, step=0.1, key="pluck_position")
-        body_mix = st.slider("乐器共鸣", 0.0, 0.6, value=0.35, step=0.05, key="body_mix")
-        reflection = st.slider("音乐厅混响", 0.0, 0.4, value=0.18, step=0.02, key="reflection")
-        coupling = st.slider("分频点（MIDI音符）", 40, 65, value=52, step=1, key="coupling")
-
-        st.markdown("---")
-        st.markdown("""
-        **乐队模式特性：**
-        - 自动音域分配：低音→贝斯，中音→吉他，打击乐→鼓组
-        - 动态平衡控制：可调节各声部比例
-        - 完整频段覆盖：20Hz-20kHz
-        - 多乐器物理建模
-        """)
+        st.slider("整体明亮", 0.4, 0.9, value=val_bright, step=0.05, key="brightness")
+        st.slider("动态平衡", 0.8, 2.5, value=val_pluck, step=0.1, key="pluck_position")
+        st.slider("乐器共鸣", 0.0, 0.6, value=val_body, step=0.05, key="body_mix")
+        st.slider("混响", 0.0, 0.4, value=val_refl, step=0.02, key="reflection")
+        st.slider("贝斯分频点", 40, 65, value=val_coup, step=1, key="coupling")
 
     st.markdown("---")
     if st.button("🔄 恢复默认音色", use_container_width=True):
@@ -1065,6 +1026,3 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
-
-
