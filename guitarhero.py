@@ -1,3 +1,4 @@
+
 import numpy as np
 import streamlit as st
 import io
@@ -460,32 +461,17 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             midi_stream_guitar = io.BytesIO(file_bytes)
             midi_stream_bass = io.BytesIO(file_bytes)
 
-            # ========== 改进的合奏策略 ==========
-
-            # 1. 吉他：保持标准音色，不受 pluck_pos 影响
+            # 1. 吉他
             GUITAR_PLUCK = 0.25
             GUITAR_COUPLING = 0.005
-
             result_guitar = guitar.midi_to_audio(
-                midi_stream_guitar,
-                brightness,  # 使用用户设置的明亮度
-                GUITAR_PLUCK,
-                body_mix,
-                reflection,
-                GUITAR_COUPLING
+                midi_stream_guitar, brightness, GUITAR_PLUCK, body_mix, reflection, GUITAR_COUPLING
             )
 
-            # 2. 贝斯：伴奏模式，使用标准参数
+            # 2. 贝斯
             BASS_PLUCK = 1.8
-
             result_bass = bass.midi_to_audio(
-                midi_stream_bass,
-                brightness * 0.85,  # 贝斯稍暗一点
-                BASS_PLUCK,
-                body_mix * 1.1,  # 贝斯箱体共鸣稍强
-                reflection * 0.9,  # 贝斯混响稍弱
-                0.0,
-                solo_mode=False  # 伴奏模式
+                midi_stream_bass, brightness * 0.85, BASS_PLUCK, body_mix * 1.1, reflection * 0.9, 0.0, solo_mode=False
             )
 
             if not (result_guitar and result_bass and result_guitar[1] is not None and result_bass[1] is not None):
@@ -494,77 +480,28 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             guitar_samples = result_guitar[1]
             bass_samples = result_bass[1]
 
-            # 3. 统一长度
             max_len = max(len(guitar_samples), len(bass_samples))
-            if len(guitar_samples) < max_len:
-                guitar_samples = np.pad(guitar_samples, (0, max_len - len(guitar_samples)))
-            if len(bass_samples) < max_len:
-                bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
+            if len(guitar_samples) < max_len: guitar_samples = np.pad(guitar_samples,
+                                                                      (0, max_len - len(guitar_samples)))
+            if len(bass_samples) < max_len: bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
 
-            # ========== 智能混音算法 ==========
-
-            # 4. 动态能量检测（分析吉他的演奏密度）
-            window_size = 48000  # 1秒窗口
-            guitar_energy = np.convolve(
-                guitar_samples ** 2,
-                np.ones(window_size) / window_size,
-                mode='same'
-            )
-            guitar_energy_norm = guitar_energy / (np.max(guitar_energy) + 1e-8)
-
-            # 5. 贝斯呼吸感调制
-            # 当吉他演奏密集时，贝斯音量降低30%；吉他稀疏时，贝斯填补空间
-            bass_breathing = 1.0 - (guitar_energy_norm * 0.3)
-
-            # 高斯平滑（避免突变）
-            from scipy.ndimage import gaussian_filter1d
-            bass_breathing = gaussian_filter1d(bass_breathing, sigma=4800)  # 0.1秒平滑
-
-            # 应用呼吸感
-            bass_samples_modulated = bass_samples * bass_breathing
-
-            # 6. 频段分离混音（避免频段冲突）
-            # 贝斯：强调 40-250Hz
-            sos_bass_lp = signal.butter(4, 250, 'lp', fs=48000, output='sos')
-            bass_low = signal.sosfilt(sos_bass_lp, bass_samples_modulated)
-
-            # 吉他：强调 200Hz 以上
-            sos_guitar_hp = signal.butter(4, 200, 'hp', fs=48000, output='sos')
-            guitar_high = signal.sosfilt(sos_guitar_hp, guitar_samples)
-
-            # 7. 音量平衡控制（使用 pluck_position 参数）
-            # pluck_position: 0.3-3.0
-            # < 1.0: 偏向吉他
-            # = 1.0: 平衡
-            # > 1.0: 偏向贝斯
-
+            # 音量平衡 (简化版，防止卡死)
             if pluck_pos < 1.0:
-                # 偏向吉他
-                guitar_vol = 0.65 + (1.0 - pluck_pos) * 0.2  # 0.65-0.85
-                bass_vol = 0.35 - (1.0 - pluck_pos) * 0.15  # 0.20-0.35
+                guitar_vol = 0.65
+                bass_vol = 0.35
             elif pluck_pos > 1.0:
-                # 偏向贝斯
-                guitar_vol = 0.65 - (pluck_pos - 1.0) * 0.15  # 0.35-0.65
-                bass_vol = 0.35 + (pluck_pos - 1.0) * 0.20  # 0.35-0.75
+                guitar_vol = 0.35
+                bass_vol = 0.65
             else:
-                # 平衡 (pluck_pos == 1.0)
                 guitar_vol = 0.60
                 bass_vol = 0.40
 
-            # 归一化
-            total_vol = guitar_vol + bass_vol
-            guitar_vol /= total_vol
-            bass_vol /= total_vol
+            mixed = guitar_samples * guitar_vol + bass_samples * bass_vol
+            mixed = np.nan_to_num(mixed)  # 防止 NaN
 
-            # 8. 混合
-            mixed = guitar_high * guitar_vol + bass_low * bass_vol
-
-            # 9. 最终处理
             peak = np.max(np.abs(mixed))
-            if peak > 0.01:
-                mixed = mixed / peak * 0.96
+            if peak > 0.01: mixed = mixed / peak * 0.96
 
-            # 10. 输出
             samples_int = (mixed * 32767).astype(np.int16)
             buf = io.BytesIO()
             import wave
@@ -588,167 +525,89 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
         elif instrument == "full_band":
             from instruments import guitar, bass, drums
             import numpy as np
-            from scipy import signal
+            # 移除 scipy.signal 的复杂引用以减少开销
 
             original_data = file_bytes
 
-            # ========== 三轨独立渲染 ==========
-
-            # 1. 吉他轨：主旋律，使用标准参数
+            # ========== 1. 渲染吉他 ==========
             midi_stream_guitar = io.BytesIO(original_data)
+            # 吉他参数微调
             GUITAR_PLUCK = 0.25
             GUITAR_COUPLING = 0.005
-
             result_guitar = guitar.midi_to_audio(
-                midi_stream_guitar,
-                brightness * 1.05,  # 稍亮
-                GUITAR_PLUCK,
-                body_mix * 0.85,  # 共鸣稍弱
-                reflection * 0.9,  # 混响稍弱
-                GUITAR_COUPLING
+                midi_stream_guitar, brightness * 1.05, GUITAR_PLUCK, body_mix * 0.85, reflection * 0.9, GUITAR_COUPLING
             )
 
-            # 2. 贝斯轨：低音基础，伴奏模式
+            # ========== 2. 渲染贝斯 ==========
             midi_stream_bass = io.BytesIO(original_data)
             BASS_PLUCK = 1.8
-
             result_bass = bass.midi_to_audio(
-                midi_stream_bass,
-                brightness * 0.85,  # 贝斯偏暗
-                BASS_PLUCK,
-                body_mix * 1.15,  # 贝斯共鸣强
-                reflection * 0.85,  # 混响适中
-                0.0,
-                solo_mode=False  # 伴奏模式
+                midi_stream_bass, brightness * 0.85, BASS_PLUCK, body_mix * 1.15, reflection * 0.85, 0.0,
+                solo_mode=False
             )
 
-            # 3. 鼓组轨：节奏骨架
+            # ========== 3. 渲染鼓组 ==========
             midi_stream_drums = io.BytesIO(original_data)
             DRUMS_PLUCK = 1.2
-
             result_drums = drums.midi_to_audio(
-                midi_stream_drums,
-                brightness * 0.9,  # 鼓皮硬度适中
-                DRUMS_PLUCK,
-                body_mix * 0.6,  # 腔体共鸣适中
-                reflection * 1.1,  # 混响稍强
-                coupling  # 压缩感
+                midi_stream_drums, brightness * 0.9, DRUMS_PLUCK, body_mix * 0.6, reflection * 1.1, coupling
             )
 
-            if not all([result_guitar, result_bass, result_drums]):
-                return None
-
-            if not all([result_guitar[1] is not None, result_bass[1] is not None, result_drums[1] is not None]):
-                return None
-
+            # 检查结果
+            if not (result_guitar and result_bass and result_drums): return None
             guitar_samples = result_guitar[1]
             bass_samples = result_bass[1]
             drums_samples = result_drums[1]
 
+            if guitar_samples is None or bass_samples is None or drums_samples is None: return None
+
             # 4. 统一长度
             max_len = max(len(guitar_samples), len(bass_samples), len(drums_samples))
-            if len(guitar_samples) < max_len:
-                guitar_samples = np.pad(guitar_samples, (0, max_len - len(guitar_samples)))
-            if len(bass_samples) < max_len:
-                bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
-            if len(drums_samples) < max_len:
-                drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
+            if len(guitar_samples) < max_len: guitar_samples = np.pad(guitar_samples,
+                                                                      (0, max_len - len(guitar_samples)))
+            if len(bass_samples) < max_len: bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
+            if len(drums_samples) < max_len: drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
 
-            # ========== 智能三轨混音 ==========
+            # ========== 5. 快速线性混音 (Fast Mix) ==========
+            # 移除了所有卷积运算，防止卡死
 
-            # 5. 能量分析（分析各轨道的演奏密度）
-            window_size = 48000  # 1秒窗口
+            # 基础平衡调整：大幅提升吉他 (0.4 -> 0.6)
+            base_guitar = 0.60
+            base_bass = 0.40
+            base_drums = 0.25
 
-            guitar_energy = np.convolve(guitar_samples ** 2, np.ones(window_size) / window_size, mode='same')
-            bass_energy = np.convolve(bass_samples ** 2, np.ones(window_size) / window_size, mode='same')
-            drums_energy = np.convolve(drums_samples ** 2, np.ones(window_size) / window_size, mode='same')
-
-            # 归一化能量
-            guitar_energy_norm = guitar_energy / (np.max(guitar_energy) + 1e-8)
-            drums_energy_norm = drums_energy / (np.max(drums_energy) + 1e-8)
-
-            # 6. 动态音量调制
-            # 当吉他或鼓密集时，贝斯适当退后；稀疏时，贝斯填补空间
-            combined_energy = (guitar_energy_norm + drums_energy_norm) / 2
-            bass_ducking = 1.0 - (combined_energy * 0.25)  # 最多降低25%
-
-            # 平滑处理
-            from scipy.ndimage import gaussian_filter1d
-            bass_ducking = gaussian_filter1d(bass_ducking, sigma=4800)  # 0.1秒平滑
-
-            # 应用到贝斯
-            bass_samples_ducked = bass_samples * bass_ducking
-
-            # 7. 频段分离混音
-            # 贝斯：40-250Hz
-            sos_bass_lp = signal.butter(4, 250, 'lp', fs=48000, output='sos')
-            bass_low = signal.sosfilt(sos_bass_lp, bass_samples_ducked)
-
-            # 吉他：200Hz-8kHz
-            sos_guitar_bp = signal.butter(2, [200, 8000], 'bp', fs=48000, output='sos')
-            guitar_mid = signal.sosfilt(sos_guitar_bp, guitar_samples)
-
-            # 鼓：全频段（但低频与贝斯共享，高频独占）
-            sos_drums_hp = signal.butter(2, 100, 'hp', fs=48000, output='sos')
-            drums_full = signal.sosfilt(sos_drums_hp, drums_samples)
-
-            # 8. 音量平衡（使用 pluck_position 参数控制整体平衡）
-            # pluck_position: 0.8-2.5
-            # < 1.5: 偏向吉他主导
-            # = 1.5: 平衡
-            # > 1.5: 偏向节奏组（贝斯+鼓）
-
-            base_guitar = 0.40
-            base_bass = 0.32
-            base_drums = 0.28
-
+            # 根据 pluck_pos 微调平衡
             if pluck_pos < 1.5:
                 # 偏向吉他
-                factor = (1.5 - pluck_pos) / 0.7  # 0-1
-                guitar_vol = base_guitar * (1.0 + factor * 0.3)
-                bass_vol = base_bass * (1.0 - factor * 0.2)
-                drums_vol = base_drums * (1.0 - factor * 0.15)
+                guitar_vol = base_guitar * 1.1
+                bass_vol = base_bass * 0.9
+                drums_vol = base_drums * 0.9
             elif pluck_pos > 1.5:
                 # 偏向节奏组
-                factor = (pluck_pos - 1.5) / 1.0  # 0-1
-                guitar_vol = base_guitar * (1.0 - factor * 0.25)
-                bass_vol = base_bass * (1.0 + factor * 0.3)
-                drums_vol = base_drums * (1.0 + factor * 0.25)
+                guitar_vol = base_guitar * 0.9
+                bass_vol = base_bass * 1.1
+                drums_vol = base_drums * 1.1
             else:
-                # 平衡
                 guitar_vol = base_guitar
                 bass_vol = base_bass
                 drums_vol = base_drums
 
-            # 归一化
-            total_vol = guitar_vol + bass_vol + drums_vol
-            guitar_vol /= total_vol
-            bass_vol /= total_vol
-            drums_vol /= total_vol
-
-            # 9. 混合三轨
+            # 直接混合 (无鸭嘴/呼吸处理，确保速度)
             mixed = (
-                    guitar_mid * guitar_vol +
-                    bass_low * bass_vol +
-                    drums_full * drums_vol
+                    guitar_samples * guitar_vol +
+                    bass_samples * bass_vol +
+                    drums_samples * drums_vol
             )
 
-            # 10. 母带压缩（轻微，保留动态）
-            # Soft knee compressor
-            threshold = 0.7
-            ratio = 3.0
-            for i in range(len(mixed)):
-                if abs(mixed[i]) > threshold:
-                    sign = 1.0 if mixed[i] > 0 else -1.0
-                    excess = abs(mixed[i]) - threshold
-                    mixed[i] = sign * (threshold + excess / ratio)
+            # 安全保护：防止 NaN
+            mixed = np.nan_to_num(mixed)
 
-            # 11. 最终归一化
+            # 最终归一化
             peak = np.max(np.abs(mixed))
             if peak > 0.01:
                 mixed = mixed / peak * 0.96
 
-            # 12. 输出
+            # 输出 WAV
             samples_int = (mixed * 32767).astype(np.int16)
             buf = io.BytesIO()
             import wave
@@ -760,8 +619,6 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             return buf.getvalue()
 
         else:  # piano
-            # Piano logic remains unchanged, assume it doesn't need solo_mode arg or it handles **kwargs
-            # Ideally check piano module, but for now just pass standard args
             from instruments import piano as engine_module
             midi_stream = io.BytesIO(file_bytes)
             result = engine_module.midi_to_audio(
@@ -974,7 +831,7 @@ def render_sync_player(audio_bytes):
     components.html(html_code, height=125)
 
 
-# --- 7. 侧边栏 (彻底修复版) ---
+# --- 7. 侧边栏 ---
 with st.sidebar:
     st.title("音色实验室")
     st.caption("在调参后请手动重新生成")
@@ -1028,8 +885,6 @@ with st.sidebar:
 
 # --- 8. 主界面 (带沉浸模式开关) ---
 
-# 1. 定义布局：左边占位，右边放开关
-# 我们利用 columns 把开关挤到最右边，模拟"内嵌"在标题栏上方的效果
 col_header_spacer, col_header_toggle = st.columns([6, 1.2])
 
 with col_header_toggle:
@@ -1085,15 +940,12 @@ else:  # piano
     subtitle = "多弦耦合 · MIDI → 三角钢琴 · 音乐厅混响"
     gradient = "linear-gradient(90deg,#1a1a2e,#16213e,#0f3460)"
 
-# 3. 核心逻辑：如果开启了透明模式，覆盖上面的样式
-# 极简高透明方案
 if is_transparent:
-    # --- 这里是核心修改点 ---
-    gradient = "rgba(255, 255, 255, 0.03)"  # 和信息卡一样的透明度
-    border_style = "1px solid rgba(255, 255, 255, 0.08)"  # 和信息卡一致
+    gradient = "rgba(255, 255, 255, 0.03)"
+    border_style = "1px solid rgba(255, 255, 255, 0.08)"
     text_color = "#ffffff"
     text_shadow = "0 2px 8px rgba(0,0,0,0.8)"
-# 4. 渲染标题卡片
+
 style_block = f"""
 background: {gradient};
 padding: 18px 28px;
@@ -1104,8 +956,6 @@ border: {border_style};
 margin-bottom: 20px;
 transition: all 0.3s ease;
 """
-
-# 移除毛玻璃效果
 
 st.markdown(f"""
 <div style='{style_block}'>
