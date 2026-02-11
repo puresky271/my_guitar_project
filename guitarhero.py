@@ -833,6 +833,7 @@ def render_sync_player(audio_bytes):
 with st.sidebar:
     st.title("音色实验室")
     st.caption("在调参后请手动重新生成")
+    st.caption("作者目前还在寻找获取优质MIDI文件的方法，目前的MIDI文件大多都是大钢琴独奏，所以听上去比较怪。"
     st.markdown("---")
 
     instrument = st.session_state.get('instrument', 'guitar')
@@ -1141,3 +1142,4 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
