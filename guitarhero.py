@@ -1,4 +1,3 @@
-
 import numpy as np
 import streamlit as st
 import io
@@ -72,6 +71,12 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3);
     }
 
+
+
+
+
+
+
     /* 信息卡片容器 */
     .metric-container {
         background: rgba(255, 255, 255, 0.03); /* 保持微弱背景以确保文字可读 */
@@ -95,6 +100,30 @@ st.markdown("""
         color: #fff;
         font-weight: 500;
     }
+
+[data-testid="stDownloadButton"] > button,
+div[data-testid="stHorizontalBlock"] .stButton > button {
+    height: 48px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+}
+
+
+[data-testid="stDownloadButton"] > button {
+    height: 48px !important;
+    width: 100%;
+}
+
+
+
+
+div[data-testid="column"] button div p {
+    font-size: 14px !important;
+    font-weight: 500 !important;
+}
     </style>
     """, unsafe_allow_html=True)
 
@@ -184,6 +213,212 @@ def set_background():
 
 # 执行加载
 set_background()
+
+# ========== 纯净播放模式检测（必须在页面最开始）==========
+if st.session_state.get('pure_mode') and 'audio_out' in st.session_state:
+    # 创建一个隐藏的退出按钮
+    if st.button("退出纯净模式", key="exit_pure_btn"):
+        st.session_state.pure_mode = False
+        st.rerun()
+
+    # 隐藏所有Streamlit默认元素
+    st.markdown("""
+    <style>
+    /* 隐藏侧边栏 */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    /* 隐藏顶部栏 */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    /* 隐藏主内容区 */
+    .main .block-container > div:not(:last-child) {
+        display: none !important;
+    }
+
+    /* 隐藏底部 */
+    footer {
+        display: none !important;
+    }
+
+    /* 隐藏退出按钮本身 */
+    button[data-testid="baseButton-secondary"] {
+        display: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 渲染纯净播放器
+    audio_b64 = base64.b64encode(st.session_state.audio_out).decode()
+
+    pure_player_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{
+                width: 100vw; height: 100vh;
+                display: flex; align-items: center; justify-content: center;
+                background: transparent; overflow: hidden;
+                font-family: 'Segoe UI', sans-serif;
+            }}
+
+            /* 主容器 */
+            .player-container {{
+                position: relative;
+                display: flex; align-items: center; justify-content: center;
+            }}
+
+            /* 环形进度条 (半径65，紧贴110px按钮) */
+            .progress-ring {{
+                position: absolute;
+                transform: rotate(-90deg);
+                z-index: 10;
+                pointer-events: none;
+            }}
+            .progress-ring-circle {{
+                transition: stroke-dashoffset 0.1s linear;
+                stroke: #ff4b4b; stroke-linecap: round;
+                /* 2 * pi * 65 ≈ 408.4 */
+                stroke-dasharray: 408.4; stroke-dashoffset: 408.4;
+            }}
+            .progress-ring-bg {{ stroke: rgba(255, 255, 255, 0.1); }}
+
+            /* 播放按钮 (110px) */
+            .play-button {{
+                position: absolute;
+                width: 110px; height: 110px;
+                background: linear-gradient(135deg, #ff4b4b 0%, #ff6b6b 100%);
+                border: none; border-radius: 50%;
+                cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                transition: all 0.3s ease;
+                box-shadow: 0 10px 30px rgba(255, 75, 75, 0.4);
+                z-index: 20;
+            }}
+            .play-button:hover {{ transform: scale(1.05); }}
+            .play-icon, .pause-icon {{ width: 52px; height: 52px; fill: white; }}
+            .pause-icon {{ display: none; }}
+            .play-button.playing .play-icon {{ display: none; }}
+            .play-button.playing .pause-icon {{ display: block; }}
+
+            /* 环形波形条 */
+            .visualizer-container {{
+                position: absolute;
+                width: 100%; height: 100%;
+                display: flex; align-items: center; justify-content: center;
+                pointer-events: none;
+            }}
+            .bar {{
+                position: absolute;
+                bottom: 50%;
+                width: 2px;
+                background: #ff4b4b;
+                transform-origin: center bottom;
+                border-radius: 2px;
+                opacity: 0.6;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="player-container">
+            <div class="visualizer-container" id="visualizer"></div>
+
+            <svg class="progress-ring" width="220" height="220" viewBox="0 0 220 220">
+                <circle class="progress-ring-bg" cx="110" cy="110" r="65" fill="none" stroke-width="4"/>
+                <circle class="progress-ring-circle" id="progressCircle" cx="110" cy="110" r="65" fill="none" stroke-width="4"/>
+            </svg>
+
+            <button class="play-button" id="playBtn">
+                <svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg class="pause-icon" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+            </button>
+        </div>
+
+        <audio id="audio" crossorigin="anonymous">
+            <source src="data:audio/wav;base64,{audio_b64}" type="audio/wav">
+        </audio>
+
+        <script>
+            const audio = document.getElementById('audio');
+            const playBtn = document.getElementById('playBtn');
+            const progressCircle = document.getElementById('progressCircle');
+            const visualizer = document.getElementById('visualizer');
+
+            const radius = 65;
+            const circumference = 2 * Math.PI * radius;
+
+            const barCount = 80; // 增加线条数量，使起伏更密集
+            const bars = [];
+
+            // 初始化环形条
+            for (let i = 0; i < barCount; i++) {{
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                visualizer.appendChild(bar);
+                bars.push(bar);
+            }}
+
+            // 山谷起伏效果
+            let time = 0;
+            function draw() {{
+                requestAnimationFrame(draw);
+                time += 0.02; // 稍微加快波动速度
+
+                for (let i = 0; i < barCount; i++) {{
+                    // 【核心修改】通过增加乘数（12和20）来制造更多的凹凸（山峰）
+                    const angleRatio = i / barCount;
+                    const wave1 = Math.sin(angleRatio * Math.PI * 6 + time); 
+                    const wave2 = Math.sin(angleRatio * Math.PI * 10 - time * 1.2) * 0.4;
+                    const wave3 = Math.cos(angleRatio * Math.PI * 6 + time * 0.5) * 0.3;
+
+                    // 组合波形
+                    let val = (wave1 + wave2 + wave3 + 1.7) / 3.4;
+                    val = Math.pow(val, 2); // 增强山峰的锐利感
+
+                    const height = val * 30 + 3; // 波动幅度
+                    const degree = i * (360 / barCount);
+
+                    bars[i].style.height = `${{height}}px`;
+                    // 紧贴进度条边缘
+                    bars[i].style.transform = `rotate(${{degree}}deg) translateY(-73px) scaleY(${{1 + val/2}})`;
+                    bars[i].style.opacity = 0.2 + val * 0.6;
+                }}
+            }}
+
+            playBtn.addEventListener('click', () => {{
+                if (audio.paused) {{
+                    audio.play();
+                    playBtn.classList.add('playing');
+                }} else {{
+                    audio.pause();
+                    playBtn.classList.remove('playing');
+                }}
+            }});
+
+            audio.addEventListener('timeupdate', () => {{
+                const progress = (audio.currentTime / audio.duration) || 0;
+                progressCircle.style.strokeDashoffset = circumference - (progress * circumference);
+            }});
+
+            audio.addEventListener('ended', () => {{
+                playBtn.classList.remove('playing');
+                progressCircle.style.strokeDashoffset = circumference;
+            }});
+
+            draw();
+        </script>
+    </body>
+    </html>
+    """
+
+    components.html(pure_player_html, height=800, scrolling=False)
+    st.stop()
 
 
 # --- 4. 资源加载 (GIF) ---
@@ -569,7 +804,7 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             if len(drums_samples) < max_len: drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
 
             # ========== 5. 快速线性混音 (Fast Mix) ==========
- 
+
             base_guitar = 0.65
             base_bass = 0.45
             base_drums = 0.25
@@ -1113,7 +1348,7 @@ with col_output:
     if 'audio_out' in st.session_state and st.session_state.audio_out:
         render_sync_player(st.session_state.audio_out)
         st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-        d_col1, d_col2 = st.columns([3, 1])
+        d_col1, d_col2, d_col3 = st.columns([2.0, 1.5, 1.5])
         with d_col1:
             st.download_button(
                 label="💾 点我下载 WAV 文件",
@@ -1122,9 +1357,13 @@ with col_output:
                 mime="audio/wav",
                 use_container_width=True
             )
-        with d_col2:
-            st.button("🗑️", help="清除缓存", on_click=lambda: st.session_state.pop('audio_out', None),
+        with d_col3:
+            st.button("🗑️清除缓存", on_click=lambda: st.session_state.pop('audio_out', None),
                       use_container_width=True)
+        with d_col2:
+            if st.button("🤗我想看脸", use_container_width=True, help="如你所愿"):
+                st.session_state.pure_mode = True
+                st.rerun()
     else:
         st.markdown("""
         <div style="
@@ -1137,10 +1376,47 @@ with col_output:
         </div>
         """, unsafe_allow_html=True)
 
+# ========== 纯净播放模式检测（必须在页面最开始）==========
+if st.session_state.get('pure_mode') and 'audio_out' in st.session_state:
+    # 创建一个隐藏的退出按钮
+    if st.button("退出纯净模式", key="exit_pure_btn"):
+        st.session_state.pure_mode = False
+        st.rerun()
+
+    # 隐藏所有Streamlit默认元素
+    st.markdown("""
+    <style>
+    /* 隐藏侧边栏 */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    /* 隐藏顶部栏 */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    /* 隐藏主内容区 */
+    .main .block-container > div:not(:last-child) {
+        display: none !important;
+    }
+
+    /* 隐藏底部 */
+    footer {
+        display: none !important;
+    }
+
+    /* 隐藏退出按钮本身 */
+    button[data-testid="baseButton-secondary"] {
+        display: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+
 st.markdown("---")
 st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
-
