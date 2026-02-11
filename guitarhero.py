@@ -569,9 +569,7 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             if len(drums_samples) < max_len: drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
 
             # ========== 5. 快速线性混音 (Fast Mix) ==========
-            # 移除了所有卷积运算，防止卡死
-
-            # 基础平衡调整：大幅提升吉他 (0.4 -> 0.6)
+ 
             base_guitar = 0.65
             base_bass = 0.45
             base_drums = 0.25
@@ -1143,4 +1141,3 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
-
