@@ -243,17 +243,20 @@ def get_gif_button_html():
     """
 
 
-# --- 5. [修复] 状态初始化 ---
-# 移除了会导致参数锁死的全局初始化循环。
-# 现在所有参数由侧边栏 (Section 7) 根据当前乐器动态管理。
+# --- 5. 状态初始化 ---
+DEFAULTS = {
+    "brightness": 0.60,
+    "pluck_position": 0.25,
+    "body_mix": 0.15,
+    "reflection": 0.15,
+    "coupling": 0.005,
+}
+for k, v in DEFAULTS.items():
+    st.session_state.setdefault(k, v)
 
 if st.session_state.get("reset_tone"):
-    # 修复：点击重置时，不再强制设为吉他参数，而是清空状态
-    # 这样下一次渲染侧边栏时，会自动使用当前乐器的默认值
-    keys_to_reset = ["brightness", "pluck_position", "body_mix", "reflection", "coupling"]
-    for k in keys_to_reset:
-        st.session_state.pop(k, None)
-    
+    for k, v in DEFAULTS.items():
+        st.session_state[k] = v
     st.session_state.reset_tone = False
 
 
