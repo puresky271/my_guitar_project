@@ -280,19 +280,37 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             from instruments import guitar as engine_module
         elif instrument == "bass":
             from instruments import bass as engine_module
+            midi_stream = io.BytesIO(file_bytes)
+            # 贝斯独奏模式：开启 solo_mode=True
+            result = engine_module.midi_to_audio(
+                midi_stream, brightness, pluck_pos, body_mix, reflection, coupling, solo_mode=True
+            )
+            if result is None or not isinstance(result, tuple) or result[0] is None:
+                return None
+            return result[0]
+
         elif instrument == "guitar_bass":
             from instruments import guitar, bass
             import numpy as np
 
             midi_stream_guitar = io.BytesIO(file_bytes)
             midi_stream_bass = io.BytesIO(file_bytes)
-            split_note = int(coupling)
+
+            # --- 修复核心：解耦混音参数与音色参数 ---
+            # 1. 吉他音色修复：
+            #    不要把 pluck_pos (这里是音量平衡 0.3-3.0) 传给吉他合成器
+            #    使用标准的吉他参数: pluck=0.25, coupling=0.005 (避免像钢琴)
+            GUITAR_FIXED_PLUCK = 0.25
+            GUITAR_FIXED_COUPLING = 0.005
 
             result_guitar = guitar.midi_to_audio(
-                midi_stream_guitar, brightness, pluck_pos, body_mix, reflection, 0.002
+                midi_stream_guitar, brightness, GUITAR_FIXED_PLUCK, body_mix, reflection, GUITAR_FIXED_COUPLING
             )
+
+            # 2. 贝斯音色：
+            #    伴奏模式，solo_mode=False (使用智能编曲)
             result_bass = bass.midi_to_audio(
-                midi_stream_bass, brightness * 0.8, pluck_pos, body_mix, reflection, 0.0
+                midi_stream_bass, brightness * 0.8, pluck_pos, body_mix, reflection, 0.0, solo_mode=False
             )
 
             if result_guitar and result_bass and result_guitar[1] is not None and result_bass[1] is not None:
@@ -304,6 +322,7 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
                 if len(bass_samples) < max_len:
                     bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
 
+                # pluck_pos 在这里作为音量平衡控制
                 guitar_vol = pluck_pos / (pluck_pos + 1.0)
                 bass_vol = 1.0 / (pluck_pos + 1.0)
                 mixed = guitar_samples * guitar_vol + bass_samples * bass_vol
@@ -326,7 +345,6 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
 
         elif instrument == "drums":
             from instruments import drums as engine_module
-
             midi_stream = io.BytesIO(file_bytes)
             result = engine_module.midi_to_audio(
                 midi_stream, brightness, pluck_pos, body_mix, reflection, coupling
@@ -336,89 +354,76 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             return result[0]
 
         elif instrument == "full_band":
-            # 全乐队渲染：吉他 + 贝斯 + 鼓组
             from instruments import guitar, bass, drums
             import numpy as np
 
-            # 读取原始 MIDI 数据（需要复制）
             original_data = file_bytes
 
-            # 1. 渲染吉他声部（中高频）
+            # 1. 渲染吉他 (修复：使用标准参数)
             midi_stream_guitar = io.BytesIO(original_data)
+            # 吉他稍亮一点 * 1.1，但 coupling 保持 0.005 避免钢琴化
+            GUITAR_FIXED_PLUCK = 0.25
+            GUITAR_FIXED_COUPLING = 0.005
+
             result_guitar = guitar.midi_to_audio(
-                midi_stream_guitar, brightness * 1.1, pluck_pos * 0.9, body_mix * 0.8, reflection * 0.9, 0.003
+                midi_stream_guitar, brightness * 1.1, GUITAR_FIXED_PLUCK, body_mix * 0.8, reflection * 0.9,
+                GUITAR_FIXED_COUPLING
             )
 
-            # 2. 渲染贝斯声部（低频）
+            # 2. 渲染贝斯 (伴奏模式)
             midi_stream_bass = io.BytesIO(original_data)
             result_bass = bass.midi_to_audio(
-                midi_stream_bass, brightness * 0.9, pluck_pos * 1.2, body_mix * 1.2, reflection * 0.8, 0.0
+                midi_stream_bass, brightness * 0.9, 1.8, body_mix * 1.2, reflection * 0.8, 0.0, solo_mode=False
             )
 
-            # 3. 渲染鼓组声部（全频段打击乐）
+            # 3. 渲染鼓组
             midi_stream_drums = io.BytesIO(original_data)
             result_drums = drums.midi_to_audio(
-                midi_stream_drums, brightness * 0.8, pluck_pos * 0.7, body_mix * 0.5, reflection * 1.2, coupling
+                midi_stream_drums, brightness * 0.8, 1.2, body_mix * 0.5, reflection * 1.2, coupling
             )
 
-            # 检查所有渲染结果
             if not all([result_guitar, result_bass, result_drums]):
-                st.error("某个声部渲染失败")
                 return None
 
-            # 获取音频数据
             if result_guitar[1] is None or result_bass[1] is None or result_drums[1] is None:
-                st.error("音频数据为空")
                 return None
 
             guitar_samples = result_guitar[1]
             bass_samples = result_bass[1]
             drums_samples = result_drums[1]
 
-            # 统一长度
             max_len = max(len(guitar_samples), len(bass_samples), len(drums_samples))
+            if len(guitar_samples) < max_len: guitar_samples = np.pad(guitar_samples,
+                                                                      (0, max_len - len(guitar_samples)))
+            if len(bass_samples) < max_len: bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
+            if len(drums_samples) < max_len: drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
 
-            if len(guitar_samples) < max_len:
-                guitar_samples = np.pad(guitar_samples, (0, max_len - len(guitar_samples)))
-            if len(bass_samples) < max_len:
-                bass_samples = np.pad(bass_samples, (0, max_len - len(bass_samples)))
-            if len(drums_samples) < max_len:
-                drums_samples = np.pad(drums_samples, (0, max_len - len(drums_samples)))
-
-            # 音量平衡（使用 coupling 参数控制分频点，但这里我们用 pluck_pos 作为音量平衡）
-            # 默认：吉他40%，贝斯35%，鼓组25%
+            # 音量平衡
             base_guitar_vol = 0.40
             base_bass_vol = 0.35
             base_drums_vol = 0.25
 
-            # 使用 pluck_pos 调整平衡（1.0为平衡点）
             if pluck_pos > 1.0:
-                # 强调吉他
                 guitar_vol = base_guitar_vol * (1.0 + (pluck_pos - 1.0) * 0.5)
                 bass_vol = base_bass_vol * (1.0 - (pluck_pos - 1.0) * 0.3)
                 drums_vol = base_drums_vol * (1.0 - (pluck_pos - 1.0) * 0.2)
             else:
-                # 强调贝斯和鼓组
                 guitar_vol = base_guitar_vol * pluck_pos
                 bass_vol = base_bass_vol * (1.0 + (1.0 - pluck_pos) * 0.3)
                 drums_vol = base_drums_vol * (1.0 + (1.0 - pluck_pos) * 0.2)
 
-            # 确保总音量不超过1.0
             total_vol = guitar_vol + bass_vol + drums_vol
             if total_vol > 1.0:
                 guitar_vol /= total_vol
                 bass_vol /= total_vol
                 drums_vol /= total_vol
 
-            # 混合
             mixed = guitar_samples * guitar_vol + bass_samples * bass_vol + drums_samples * drums_vol
 
-            # 限制和归一化
             peak = np.max(np.abs(mixed))
             if peak > 0:
                 mixed = mixed / peak * 0.95
 
-            # 转换为 WAV
             samples_int = (mixed * 32767).astype(np.int16)
             buf = io.BytesIO()
             import wave
@@ -430,9 +435,9 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             return buf.getvalue()
 
         else:  # piano
+            # Piano logic remains unchanged, assume it doesn't need solo_mode arg or it handles **kwargs
+            # Ideally check piano module, but for now just pass standard args
             from instruments import piano as engine_module
-
-        if instrument in ["guitar", "bass", "piano"]:
             midi_stream = io.BytesIO(file_bytes)
             result = engine_module.midi_to_audio(
                 midi_stream, brightness, pluck_pos, body_mix, reflection, coupling
@@ -440,6 +445,7 @@ def midi_to_audio_cached(file_bytes, instrument, brightness, pluck_pos, body_mix
             if result is None or not isinstance(result, tuple) or result[0] is None:
                 return None
             return result[0]
+
     except Exception as e:
         st.error(f"渲染引擎错误: {str(e)}")
         import traceback
