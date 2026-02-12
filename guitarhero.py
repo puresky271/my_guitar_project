@@ -231,7 +231,7 @@ def set_background(current_instrument: str):
                 z-index: -1; 
                 pointer-events: none;
                 transition: opacity 0.4s ease;
-                filter: saturate(190%) contrast(80%);
+                filter: saturate(180%) contrast(80%) brightness(115%);
 
                 /* 核心修复：强制使用亮度遮罩 (Luminance) */
                 /* 这意味着：遮罩图里的黑色=透明，白色=不透明 */
