@@ -8,6 +8,7 @@ import glob
 import streamlit.components.v1 as components
 import matplotlib.pyplot as plt
 import matplotlib
+import random
 from scipy import signal
 
 # 设置非交互式后端
@@ -148,14 +149,63 @@ INSTRUMENT_MASKS = {
 }
 
 # 各乐器对应的台词 MP3 文件名（放在 assets/voices/ 文件夹下）
+# 每个乐器对应的语音列表，每条是 (文件路径, 权重)
+# 权重相等则各50%，可自由调整
 INSTRUMENT_VOICES = {
-    "full_band":   None,
-    "guitar":      None,
-    "bass":        None,
-    "guitar_bass": None,
-    "drums":       None,
-    "piano":       None,
+    "full_band": [
+        ("assets/voices/咕咕嘎嘎2.mp3", 1),
+        ("assets/voices/灵感菇1.mp3", 1),
+    ],
+    "guitar": [
+        ("assets/voices/唐笑.mp3", 2),
+        ("assets/voices/唐哭.mp3", 2),
+        ("assets/voices/有趣的女人.mp3", 1)
+    ],
+    "bass": [
+        ("assets/voices/希腊奶.mp3", 1),
+        ("assets/voices/bass_2.mp3", 1),
+    ],
+    "guitar_bass": [
+        ("assets/voices/guitar_bass_1.mp3", 1),
+        ("assets/voices/guitar_bass_2.mp3", 1),
+    ],
+    "drums": [
+        ("assets/voices/我要拉黑他.mp3", 1),
+        ("assets/voices/drums_2.mp3", 1),
+    ],
+    "piano": [],  # 钢琴暂无
 }
+
+# 贝斯模式下，切换到"为什么要演奏春日影"时的特殊语音
+BASS_SPECIAL_VOICE = "assets/voices/为什么要演奏春日影.mp3"
+
+
+def pick_voice(instrument: str) -> str | None:
+    """按权重随机抽一条语音路径，文件不存在则跳过"""
+    candidates = INSTRUMENT_VOICES.get(instrument, [])
+    # 过滤掉不存在的文件
+    candidates = [(p, w) for p, w in candidates if os.path.exists(p)]
+    if not candidates:
+        return None
+    paths, weights = zip(*candidates)
+    return random.choices(paths, weights=weights, k=1)[0]
+
+
+def inject_voice(path: str | None):
+    """将 MP3 以 base64 注入独立 iframe，绕过浏览器自动播放限制"""
+    if not path or not os.path.exists(path):
+        return
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    # 用 components.html 保证 iframe 独立生命周期，不被 rerun 打断
+    components.html(f"""
+        <audio autoplay style="display:none">
+            <source src="data:audio/mpeg;base64,{b64}" type="audio/mpeg">
+        </audio>
+        <script>
+            document.querySelector('audio').play().catch(function(){{}});
+        </script>
+    """, height=1, scrolling=False)
 
 
 @st.cache_data(show_spinner=False)
@@ -1287,7 +1337,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 乐器切换按钮（含台词音效触发）
+# 乐器切换按钮
 cols = st.columns(6)
 
 buttons = [
@@ -1306,31 +1356,16 @@ for col, (label, key) in zip(cols, buttons):
                 type="primary" if instrument == key else "secondary",
                 use_container_width=True,
         ):
+            # 只在真正切换时才触发语音
+            if st.session_state.get('enable_voice', False) and st.session_state.get('instrument') != key:
+                st.session_state.pending_voice = pick_voice(key)
             st.session_state.instrument = key
-            # 标记需要播放台词
-            st.session_state.play_voice_for = key
             st.rerun()
 
-# 台词音效注入（在按钮渲染完之后立即执行）
-_voice_key = st.session_state.pop('play_voice_for', None)
-if _voice_key:
-    _voice_path = INSTRUMENT_VOICES.get(_voice_key, "")
-    _voice_b64 = load_audio_b64(_voice_path) if _voice_path else None
-    if _voice_b64:
-        st.markdown(f"""
-        <audio id="voice-player" autoplay style="display:none;">
-            <source src="data:audio/mp3;base64,{_voice_b64}" type="audio/mpeg">
-        </audio>
-        <script>
-            (function() {{
-                var a = document.getElementById('voice-player');
-                if (a) {{
-                    a.volume = 0.85;
-                    a.play().catch(function(){{}});
-                }}
-            }})();
-        </script>
-        """, unsafe_allow_html=True)
+
+# 语音注入（消费 pending_voice）
+_voice = st.session_state.pop('pending_voice', None)
+inject_voice(_voice)
 
 
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
@@ -1341,7 +1376,16 @@ with col_main:
     st.markdown("### 1. 选择 MIDI 来源")
 
     source_options = ["😡为什么要演奏春日影", "💿 内置 MIDI 库", "📂上传自己的 MIDI"]
-    mode = st.radio("MIDI 来源", source_options, horizontal=True, label_visibility="collapsed")
+    mode = st.radio("MIDI 来源", source_options, horizontal=True, label_visibility="collapsed",index=1)
+    # 贝斯模式切换到"为什么要演奏春日影"时触发特殊语音
+    _prev_mode = st.session_state.get('last_mode', None)
+    if (instrument == 'bass'
+            and mode == "😡为什么要演奏春日影"
+            and _prev_mode != "😡为什么要演奏春日影"
+            and st.session_state.get('enable_voice', False)):
+        inject_voice(BASS_SPECIAL_VOICE)
+    st.session_state.last_mode = mode
+
 
     uploaded_file = None
     if mode == "📂上传自己的 MIDI":
@@ -1483,6 +1527,21 @@ with col_output:
         </div>
         """, unsafe_allow_html=True)
 
+    # --- 4. 全局设置  ---
+    st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
+    st.markdown("### 4. 全局设置")
+
+    # 初始化状态
+    if 'enable_voice' not in st.session_state:
+        st.session_state.enable_voice = False
+
+        # 简化的 Toggle，无额外容器和注解
+    st.session_state.enable_voice = st.toggle(
+        "🔊 启用角色语音",
+        value=st.session_state.enable_voice,
+        help="彻底疯狂！"
+    )
+
 # ========== 纯净播放模式检测（必须在页面最开始）==========
 if st.session_state.get('pure_mode') and 'audio_out' in st.session_state:
     # 创建一个隐藏的退出按钮
@@ -1519,6 +1578,8 @@ if st.session_state.get('pure_mode') and 'audio_out' in st.session_state:
     }
     </style>
     """, unsafe_allow_html=True)
+
+
 
 
 
