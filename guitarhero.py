@@ -166,7 +166,7 @@ INSTRUMENT_VOICES = {
         ("assets/voices/bass_2.mp3", 1),
     ],
     "guitar_bass": [
-        ("assets/voices/guitar_bass_1.mp3", 1),
+        ("assets/voices/我没说不喜欢.mp3", 1),
         ("assets/voices/guitar_bass_2.mp3", 1),
     ],
     "drums": [
@@ -1588,3 +1588,4 @@ st.markdown(
     "<p style='text-align: center; color: grey;'>© 2026 青空 Karplus-Strong Studio | 基于CS61B Java 原版逻辑复刻</p>",
     unsafe_allow_html=True
 )
+
