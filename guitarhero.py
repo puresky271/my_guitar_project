@@ -128,91 +128,174 @@ div[data-testid="column"] button div p {
     """, unsafe_allow_html=True)
 
 
-# --- 3. 背景图加载逻辑  ---
-def set_background():
+# --- 3. 背景图加载逻辑（含角色高亮层）---
+
+# 各乐器对应的遮罩图文件名（放在 assets/masks/ 文件夹下）
+# 编号对应关系：
+#   mask_1 = full_band  → 全乐队（全部亮）
+#   mask_2 = guitar     → 吉他手角色
+#   mask_3 = bass       → 贝斯手角色
+#   mask_4 = guitar_bass→ 吉他+贝斯角色
+#   mask_5 = drums      → 鼓手角色
+#   mask_6 = piano      → 钢琴手角色
+INSTRUMENT_MASKS = {
+    "full_band":   "assets/masks/mygo.png",
+    "guitar":      "assets/masks/爱猫.png",
+    "bass":        "assets/masks/素世.png",
+    "guitar_bass": "assets/masks/爱素.png",
+    "drums":       "assets/masks/立希1.png",
+    "piano":       None,  # 钢琴无遮罩
+}
+
+# 各乐器对应的台词 MP3 文件名（放在 assets/voices/ 文件夹下）
+INSTRUMENT_VOICES = {
+    "full_band":   None,
+    "guitar":      None,
+    "bass":        None,
+    "guitar_bass": None,
+    "drums":       None,
+    "piano":       None,
+}
+
+
+@st.cache_data(show_spinner=False)
+def load_image_b64(path):
+    """加载图片并返回 base64，找不到文件返回 None"""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def load_audio_b64(path):
+    """加载 MP3 并返回 base64，找不到文件返回 None"""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
+
+
+def set_background(current_instrument: str):
     """
-    智能背景加载器：
-    1. 自动搜索 assets 文件夹下的 jpg/png/jpeg 图片
-    2. 如果找到，应用透明度背景
-    3. 如果没找到，显示警告
+    背景 + 角色高亮层渲染 (修复版)。
+
+    原理：
+    1. ::before 层 -> 显示完整的背景图，但是变暗 (opacity 0.4)
+    2. ::after 层  -> 显示完整的背景图 (opacity 1.0)，但加上遮罩 (Mask)
+       遮罩作用：只保留角色区域可见，其余区域透明(从而透出底下的暗色背景)
     """
-    # 搜索所有可能的图片
-    valid_extensions = ["*.jpg", "*.jpeg", "*.png", "*.gif"]
+    valid_extensions = ["*.jpg", "*.jpeg", "*.png"]
     image_files = []
-
-    # 检查当前目录和 assets 目录
-    search_dirs = ["assets", ".", "./assets"]
-
-    for directory in search_dirs:
+    # 扫描目录下是否有背景图
+    for directory in ["assets", ".", "./assets"]:
         for ext in valid_extensions:
-            # 拼接路径进行搜索
-            pattern = os.path.join(directory, ext)
-            image_files.extend(glob.glob(pattern))
-
-    # 去重
+            image_files.extend(glob.glob(os.path.join(directory, ext)))
     image_files = sorted(list(set(image_files)))
 
-    # 如果没找到图片，发出警告并退出
     if not image_files:
-        st.warning("⚠️ 背景图未生效：请在 assets 文件夹放入一张图片 (jpg/png)")
+        st.warning("⚠️ 背景图未生效：请在 assets 文件夹放入一张图片")
         return
 
-    # 默认取第一张找到的图
     bg_path = image_files[0]
+    bg_b64 = load_image_b64(bg_path)
+    if not bg_b64:
+        return
 
-    # 尝试读取
-    try:
-        with open(bg_path, "rb") as f:
-            img_data = f.read()
-        b64_encoded = base64.b64encode(img_data).decode()
+    # 读取当前乐器的遮罩图
+    mask_path = INSTRUMENT_MASKS.get(current_instrument, "")
+    mask_b64 = load_image_b64(mask_path) if mask_path else None
 
-        style = f"""
-            <style>
-            /* 强制清除 Streamlit 默认背景 */
-            .stApp {{
-                background: transparent !important;
-            }}
-            [data-testid="stAppViewContainer"] {{
-                background: transparent !important;
-            }}
-            .main {{
-                background: transparent !important;
-            }}
+    # --- 构建 CSS ---
 
-            /* 添加背景图伪元素 */
-            [data-testid="stAppViewContainer"]::before {{
+    # 1. 基础高亮层逻辑 (只在有遮罩时生效)
+    if mask_b64:
+        highlight_layer = f"""
+            /* 高亮层 (::after)：原图亮度，但被遮罩裁剪 */
+            [data-testid="stAppViewContainer"]::after {{
                 content: "";
                 position: fixed;
-                top: 0;
-                left: 0;
-                width: 100vw;
-                height: 100vh;
-
-                /* 图片设置 */
-                background-image: url(data:image/png;base64,{b64_encoded});
+                top: 0; left: 0;
+                width: 100vw; height: 100vh;
+                background-image: url(data:image/jpeg;base64,{bg_b64});
                 background-size: cover;
                 background-position: center;
                 background-repeat: no-repeat;
+                opacity: 0.88; 
+                z-index: -1; 
+                pointer-events: none;
+                transition: opacity 0.4s ease;
+                filter: saturate(190%) contrast(80%);
 
-                /* --- 透明度调节 --- */
-                opacity: 0.45;  /* 0.1(极淡) ~ 1.0(原图) */
+                /* 核心修复：强制使用亮度遮罩 (Luminance) */
+                /* 这意味着：遮罩图里的黑色=透明，白色=不透明 */
+                -webkit-mask-image: url(data:image/png;base64,{mask_b64});
+                mask-image: url(data:image/png;base64,{mask_b64});
 
-                /* 确保在最底层 */
-                z-index: -1;
-                pointer-events: none; /* 确保不影响点击 */
+                -webkit-mask-mode: luminance;
+                mask-mode: luminance;
+
+                -webkit-mask-size: cover;
+                mask-size: cover;
+                -webkit-mask-position: center;
+                mask-position: center;
+                -webkit-mask-repeat: no-repeat;
+                mask-repeat: no-repeat;
             }}
-            </style>
         """
-        st.markdown(style, unsafe_allow_html=True)
-        # 调试用：如果成功，下面这行可以注释掉
-        # st.toast(f"已加载背景: {os.path.basename(bg_path)}")
+    else:
+        # 无遮罩时（比如钢琴），不显示高亮层，只显示底部的暗背景（或者你可以选择全亮）
+        # 这里设置为 none，即只有暗背景
+        highlight_layer = """
+            [data-testid="stAppViewContainer"]::after {
+                content: none;
+            }
+        """
 
-    except Exception as e:
-        st.error(f"背景图加载失败: {e}")
+    # 2. 组合最终 CSS
+    style = f"""
+        <style>
+        /* 强制透明化 Streamlit 默认背景 */
+        .stApp {{ background: transparent !important; }}
+        [data-testid="stAppViewContainer"] {{ background: transparent !important; }}
+        .main {{ background: transparent !important; }}
+
+        /* --- 第一层：暗色背景 (::before) --- */
+        /* 无论有无遮罩，这层始终存在，负责显示变暗的全图 */
+        [data-testid="stAppViewContainer"]::before {{
+            content: "";
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-image: url(data:image/jpeg;base64,{bg_b64});
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+
+            /* 这里控制“未点亮”区域的暗度，数值越小越暗 */
+            opacity: 0.4; 
+            filter: saturate(130%) contrast(80%);
+
+            z-index: -2; /* 放在最底层 */
+            pointer-events: none;
+        }}
+
+        /* --- 第二层：高亮层 (::after) --- */
+        {highlight_layer}
+        </style>
+    """
+    st.markdown(style, unsafe_allow_html=True)
 
 
-# 执行加载
-set_background()
+# 执行加载（传入当前乐器）
+_current_instrument_for_bg = st.session_state.get('instrument', 'guitar')
+set_background(_current_instrument_for_bg)
 
 # ========== 纯净播放模式检测（必须在页面最开始）==========
 if st.session_state.get('pure_mode') and 'audio_out' in st.session_state:
@@ -1204,7 +1287,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 乐器切换按钮
+# 乐器切换按钮（含台词音效触发）
 cols = st.columns(6)
 
 buttons = [
@@ -1224,7 +1307,31 @@ for col, (label, key) in zip(cols, buttons):
                 use_container_width=True,
         ):
             st.session_state.instrument = key
+            # 标记需要播放台词
+            st.session_state.play_voice_for = key
             st.rerun()
+
+# 台词音效注入（在按钮渲染完之后立即执行）
+_voice_key = st.session_state.pop('play_voice_for', None)
+if _voice_key:
+    _voice_path = INSTRUMENT_VOICES.get(_voice_key, "")
+    _voice_b64 = load_audio_b64(_voice_path) if _voice_path else None
+    if _voice_b64:
+        st.markdown(f"""
+        <audio id="voice-player" autoplay style="display:none;">
+            <source src="data:audio/mp3;base64,{_voice_b64}" type="audio/mpeg">
+        </audio>
+        <script>
+            (function() {{
+                var a = document.getElementById('voice-player');
+                if (a) {{
+                    a.volume = 0.85;
+                    a.play().catch(function(){{}});
+                }}
+            }})();
+        </script>
+        """, unsafe_allow_html=True)
+
 
 st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
