@@ -8,3 +8,4 @@ folium
 streamlit-folium
 tavily-python
 watchdog
+numba>=0.57.0
