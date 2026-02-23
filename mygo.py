@@ -1,21 +1,4 @@
-from scene_data import (
-    INDOOR_LOCATIONS, TOKYO_LOCATIONS, JAPAN_LOCATIONS,
-    REAL_THEMES, OUTING_THEMES, FANTASY_ABSTRACT, FANTASY_IF_LINES,
-    META_CATEGORY_WEIGHTS, META_CONTENT_POOLS,
-    THEME_LOCATION_TYPE, CATEGORY_WEIGHTS, DEEP_RELATIONS, OTHER_MEMBERS,
-    SUB_SCENES, TRAVEL_FIXED_NODES, TRAVEL_SPOT_EVENTS,
-    TRAVEL_EMOTIONAL_BEATS, TRAVEL_WILDCARDS,
-)
-from character_profiles import MYGO_PROFILES
-from examples_data import DEFAULT_EXAMPLES
-from tourism_data import (
-    ALL_SPOTS, get_spot_info,
-    HAKONE_SPOTS, KAMAKURA_SPOTS, KYOTO_SPOTS, FUJI_SPOTS,
-    TOKYO_SPOTS, HOKKAIDO_SPOTS, OKINAWA_SPOTS, KANSAI_SPOTS,
-    CHUBU_SPOTS, KYUSHU_SPOTS, SHIKOKU_SPOTS, TOHOKU_SPOTS
-)
-from mygo_fancreation_guide import FANCREATION_GUIDE
-from mygo_memories_guide import MEMORIES_GUIDE, get_random_triggers
+
 from openai import OpenAI
 import json
 import numpy as np
@@ -31,7 +14,7 @@ import matplotlib
 import random
 import folium
 from streamlit_folium import st_folium
-from tavily import TavilyClient
+
 
 
 # ========== 音游模式：专业 4K 谱面生成引擎 (全面 4K 交互流优化版) ==========
@@ -1838,3 +1821,4 @@ inject_voice(_voice)
 components.html(_landing_html, height=1000, scrolling=False)
 
 st.stop()
+
