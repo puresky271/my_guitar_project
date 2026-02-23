@@ -34,8 +34,6 @@ from streamlit_folium import st_folium
 from tavily import TavilyClient
 
 
-# ========== 音游模式：MIDI 谱面解析引擎 (多难度适配版) ==========
-# ========== 音游模式：专业 4K 谱面生成引擎 (Auto-Charter) ==========
 # ========== 音游模式：专业 4K 谱面生成引擎 (全面 4K 交互流优化版) ==========
 def generate_beatmap(midi_bytes, difficulty='normal'):
     """基于时间窗聚合与专业键型库的 4K 谱面生成器"""
@@ -1838,4 +1836,5 @@ _voice = st.session_state.pop('pending_voice', None)
 inject_voice(_voice)
 
 components.html(_landing_html, height=1000, scrolling=False)
+
 st.stop()
