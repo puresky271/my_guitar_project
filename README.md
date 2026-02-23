@@ -5,10 +5,6 @@
 **Based on Physical Modeling Synthesis & AI-Driven Narrative**  
 基于物理建模合成与 AI 驱动叙事的 MyGO!!!!! 同人二创平台
 
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B.svg?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
-[![License](https://img.shields.io/badge/License-MIT_%28Code_Only%29-green.svg?style=flat-square)](LICENSE)
-
 **Karplus-Strong Studio** 是一个集成了**物理音频合成**、**大语言模型 (LLM) 剧本生成**以及**4K 下落式音游**的综合性 Web 应用。本项目以《BanG Dream! It's MyGO!!!!!》为主题，旨在探索技术与二创结合的可能性。
 
 ---
