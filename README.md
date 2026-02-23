@@ -3,7 +3,7 @@
 # 🎸 Karplus-Strong Studio | MyGO!!!!! Fan Creation Platform
 
 
-**Karplus-Strong Studio** 是一个集成了**物理音频合成**、**大语言模型 (LLM) 剧本生成**以及**4K 下落式音游**的综合性 Web 应用。本项目以《BanG Dream! It's MyGO!!!!!》为主题，旨在探索技术与二创结合的可能性。
+Karplus-Strong Studio 是一个集成了**物理音频合成**、**大语言模型 (LLM) 剧本生成**以及**4K 下落式音游**的综合性 Web 应用。本项目以《BanG Dream! It's MyGO!!!!!》为主题，旨在探索技术与二创结合的可能性。
 
 ---
 
