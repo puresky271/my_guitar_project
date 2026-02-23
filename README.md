@@ -2,8 +2,8 @@
 
 # 🎸 Karplus-Strong Studio | MyGO!!!!! Fan Creation Platform
 
-> **Based on Physical Modeling Synthesis & AI-Driven Narrative**  
-> 基于物理建模合成与 AI 驱动叙事的 MyGO!!!!! 同人二创平台
+**Based on Physical Modeling Synthesis & AI-Driven Narrative**  
+基于物理建模合成与 AI 驱动叙事的 MyGO!!!!! 同人二创平台
 
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B.svg?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
